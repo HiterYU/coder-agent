@@ -14,8 +14,8 @@
 ## 安装
 
 ```bash
-cd /home/donghui/jingqi/agent
-python -m venv .venv
+cd agent
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -37,6 +37,15 @@ streamlit run app.py
 ```bash
 export OPENAI_API_KEY="your_api_key"
 export OPENAI_MODEL="gpt-4.1-mini"
+streamlit run app.py
+```
+
+如果使用 OpenAI-compatible 代理或第三方兼容服务，可以额外配置自定义地址：
+
+```bash
+export OPENAI_API_KEY="your_api_key"
+export OPENAI_BASE_URL="https://your-proxy.example.com/v1"
+export OPENAI_MODEL="your_model"
 streamlit run app.py
 ```
 
