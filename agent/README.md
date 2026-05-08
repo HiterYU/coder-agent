@@ -6,8 +6,11 @@
 
 - 输入 LeetCode URL 或 slug 实时获取题目
 - 单题训练会话
+- 支持 Tab 缩进和语法高亮的代码编辑器
 - Level 1-5 分级提示
 - 提交代码后的结构化复盘
+- Python 提交会运行题目样例，样例失败会直接标记为未通过
+- Agent 指令和 Skill 按需加载
 - 错误模式记录
 - 按不同题型更新失误画像
 
@@ -32,21 +35,36 @@ streamlit run app.py
 
 没有 API key 也能运行，系统会使用本地规则兜底。
 
-如果要使用 OpenAI API：
+如果要使用 OpenAI API，复制示例配置并填写本地 `config.toml`：
 
 ```bash
-export OPENAI_API_KEY="your_api_key"
-export OPENAI_MODEL="gpt-4.1-mini"
-streamlit run app.py
+cp config.example.toml config.toml
 ```
 
-如果使用 OpenAI-compatible 代理或第三方兼容服务，可以额外配置自定义地址：
+```toml
+[openai]
+api_key = "your_api_key"
+model = "gpt-4.1-mini"
+base_url = ""
+```
+
+如果使用 OpenAI-compatible 代理或第三方兼容服务，填写自定义地址：
+
+```toml
+[openai]
+api_key = "your_api_key"
+model = "your_model"
+base_url = "https://your-proxy.example.com/v1"
+```
+
+`config.toml` 包含本地密钥，已被 git 忽略，不要提交。
+
+LLM 只会在 `agent/config.toml` 存在且 `[openai].api_key` 非空时启用。Streamlit 会缓存 `TrainingAgent`，所以修改 `config.toml` 后需要点击侧边栏“重新加载 LLM 配置”，或重启 `streamlit run app.py`。
+
+可以用下面命令检查当前是否启用：
 
 ```bash
-export OPENAI_API_KEY="your_api_key"
-export OPENAI_BASE_URL="https://your-proxy.example.com/v1"
-export OPENAI_MODEL="your_model"
-streamlit run app.py
+python3 -c "from src.llm_client import LlmClient; c=LlmClient(); print(c.available, c.status_message)"
 ```
 
 ## Demo 用户
@@ -60,24 +78,30 @@ user_id: demo
 ```text
 agent/
   app.py
+  agents/
+    hint/
+      agent.md
+      skills.md
+    review/
+      agent.md
+      skills.md
   data/
     problems.json
     seed_user_profile.json
   src/
+    agent_instructions.py
     training_agent.py
     leetcode_client.py
     hint_engine.py
     review_engine.py
+    submission_runner.py
     profile_engine.py
     problem_store.py
     session_manager.py
     storage.py
     models.py
   .runtime/
-    problems/
-    sessions/
-    profiles/
-    reviews/
+    runtime.json
 ```
 
 ## 架构
@@ -88,17 +112,76 @@ Streamlit UI
 TrainingAgent
   ├── LeetCodeClient
   ├── ProblemStore
-  ├── HintEngine
-  ├── ReviewEngine
+  ├── HintEngine -> agents/hint/agent.md + agents/hint/skills.md
+  ├── ReviewEngine -> agents/review/agent.md + agents/review/skills.md
+  ├── PythonSubmissionRunner
   ├── ProfileEngine
   ↓
-JSON Runtime Storage
+JSON Runtime Storage -> .runtime/runtime.json
 ```
+
+## Agent 指令与 Skills
+
+LLM 调用会按 Agent 名称加载 `agents/<agent_name>/agent.md` 和命中的 `agents/<agent_name>/skills.md`。
+
+当前内置：
+
+- `agents/hint/`：分级提示 Agent。
+- `agents/review/`：代码复盘 Agent。
+- `agents/_template/`：新增 Agent 时复制使用的模板。
+
+启动时只读取 `skills.md` 顶部 YAML 元数据并保存在内存中；每次用户问题进入对应 Agent 时，系统会用用户上下文和元数据做相似判断，命中后才加载 skill 全文。UI 只显示“已使用 skill: ...”，不会打印全文。
+
+加载顺序固定为 `agent.md`、命中的 `skills.md` 全文、代码中的本次任务指令。新增 Agent 时，在 `agents/` 下创建同名目录，并在调用 `LlmClient.complete_text(...)` 或 `complete_json(...)` 时传入 `agent_name="目录名"`。
+
+## Python 样例执行
+
+提交语言为 Python 时，`ReviewEngine` 会先通过 `PythonSubmissionRunner` 执行题目样例，再进入 LLM 或本地规则复盘。
+
+执行策略：
+
+- 子进程运行用户代码，避免卡住 Streamlit 主进程。
+- 设置超时和内存限制，死循环或资源过高会标记为样例失败。
+- 支持常见 LeetCode `Solution` 方法名，例如 `twoSum`、`isValid`、`maxProfit`、`search`。
+- 允许常用算法模块，如 `collections`、`heapq`、`itertools`、`math`。
+- 禁止导入 `os` 等非解题必要模块。
+
+样例失败时，`passed_sample_tests` 会是 `false`，`is_likely_correct` 也会被强制设为 `false`。这不是完整在线判题，只代表当前题目样例执行结果和结构化复盘。
+
+## Runtime 存储
+
+运行时数据统一写入一个文件：
+
+```text
+.runtime/runtime.json
+```
+
+文件按分区和 id 组织：
+
+```json
+{
+  "problems": {
+    "two-sum": {}
+  },
+  "sessions": {
+    "s_xxx": {}
+  },
+  "profiles": {
+    "demo": {}
+  },
+  "reviews": {
+    "sub_xxx": {}
+  }
+}
+```
+
+启动时会自动把旧版 `.runtime/problems/`、`.runtime/sessions/`、`.runtime/profiles/`、`.runtime/reviews/` 下的小 JSON 文件合并进 `runtime.json`，然后删除旧目录。之后不会再为每条会话或复盘创建单独 JSON 文件。
 
 ## 当前限制
 
 - 不是完整在线判题系统。
-- 复盘正确性是 LLM 或规则分析的“大概率判断”。
+- Python 复盘会先跑题目样例，但还不是完整隐藏用例判题。
+- 非 Python 语言仍使用 LLM 或规则分析做“大概率判断”。
 - 依赖 LeetCode GraphQL 可访问。
 - 多用户只用 user_id 区分，没有登录系统。
 
@@ -147,17 +230,17 @@ app.py
       -> LeetCode GraphQL
       -> 转成 Problem
     -> ProblemStore.upsert_problem()
-      -> 缓存到 .runtime/problems/{problem_id}.json
+      -> 缓存到 .runtime/runtime.json 的 problems 分区
 ```
 
 ### 2. 用户开始一道题
 
 ```text
 app.py
-  -> TrainingAgent.create_session()
+    -> TrainingAgent.create_session()
     -> ProfileEngine.get_profile()
     -> SessionManager.create_session()
-    -> 保存到 .runtime/sessions/{session_id}.json
+    -> 保存到 .runtime/runtime.json 的 sessions 分区
 ```
 
 这里会创建一个 `Session`，记录用户 ID、题目 ID、语言、开始时间、当前状态和后续消息。
@@ -199,12 +282,13 @@ app.py
     -> ProblemStore.get_problem()
     -> ProfileEngine.get_profile()
     -> ReviewEngine.review_submission()
-      -> 优先调用 LLM
+      -> Python 提交先运行样例
+      -> 再优先调用 LLM
       -> 失败则使用本地规则检查常见错误
     -> ProfileEngine.update_after_review()
       -> 更新不同题型失误画像
     -> SessionManager.mark_reviewed()
-    -> 保存 review 到 .runtime/reviews/
+    -> 保存 review 到 .runtime/runtime.json 的 reviews 分区
 ```
 
 `ReviewEngine` 返回 `ReviewResult`，包括：
@@ -212,6 +296,7 @@ app.py
 - 是否大概率正确
 - 时间复杂度
 - 空间复杂度
+- 样例测试结果
 - 错误类型
 - 具体证据
 - 复盘反馈
@@ -229,9 +314,11 @@ app.py
 | `src/session_manager.py` | 创建、更新、保存会话 |
 | `src/hint_engine.py` | 生成分级提示 |
 | `src/review_engine.py` | 代码复盘和错误识别 |
+| `src/submission_runner.py` | Python 提交样例执行器 |
+| `src/agent_instructions.py` | Agent 指令和 Skill 渐进式加载 |
 | `src/profile_engine.py` | 用户失误画像读取和更新 |
 | `src/llm_client.py` | OpenAI API 封装 |
-| `src/storage.py` | JSON 文件存储 |
+| `src/storage.py` | JSON 文件存储和 runtime 单文件存储 |
 | `src/taxonomy.py` | 固定错误类型 |
 | `src/formatting.py` | 页面展示格式化 |
 | `data/problems.json` | 本地兜底题库 |
@@ -282,7 +369,7 @@ Problem
 
 ```text
 data/problems.json
-.runtime/problems/*.json
+.runtime/runtime.json -> problems
 ```
 
 实时抓到题目后调用：
@@ -308,7 +395,7 @@ tags()
 保存位置：
 
 ```text
-.runtime/sessions/
+.runtime/runtime.json -> sessions
 ```
 
 ### HintEngine
@@ -347,7 +434,7 @@ tags()
 
 - `ReviewResult`
 
-当前不是完整在线判题，只做 LLM 或规则级分析。
+Python 提交会先运行题目样例；非 Python 提交只做 LLM 或规则级分析。
 
 ### ProfileEngine
 
@@ -356,7 +443,7 @@ tags()
 保存位置：
 
 ```text
-.runtime/profiles/
+.runtime/runtime.json -> profiles
 ```
 
 它会根据提示使用情况和复盘结果更新：
@@ -384,7 +471,7 @@ tags()
 `HintEngine` 和 `ReviewEngine` 都是同一套策略：
 
 ```text
-有 OPENAI_API_KEY -> 调 LLM
+config.toml 有 openai.api_key -> 调 LLM
 没有 key 或调用失败 -> 本地规则兜底
 ```
 
@@ -394,32 +481,25 @@ tags()
 
 ## 本地数据如何保存
 
-运行时数据都在 `.runtime/` 下：
+运行时数据都在 `.runtime/runtime.json` 中：
 
 ```text
 .runtime/
-  problems/
-    two-sum.json
-  sessions/
-    s_xxx.json
-  profiles/
-    demo.json
-  reviews/
-    sub_xxx.json
+  runtime.json
 ```
 
-这让 MVP 不需要数据库，也方便调试。打开 JSON 文件就能看到状态变化。
+这让 MVP 不需要数据库，也避免为每个 session、review、profile 疯狂创建小 JSON。打开 `runtime.json` 就能看到按 id 组织的状态变化。
 
 ## 后续开发建议
 
 优先顺序：
 
-1. 强化 `review_engine.py` 的规则检查。
+1. 强化 `review_engine.py` 的规则检查和样例外边界用例生成。
 2. 给 `hint_engine.py` 增加更细的题型提示模板。
-3. 给 `app.py` 增加更好的代码输入体验。
+3. 给 `app.py` 增加更完整的运行状态展示。
 4. 给 `profile_engine.py` 增加更细的题型画像统计。
-5. 增加样例测试执行能力。
-6. 把 `.runtime/` 从 JSON 换成 SQLite。
+5. 增加隐藏用例或自定义用例执行能力。
+6. 数据量变大后再把 `.runtime/runtime.json` 换成 SQLite。
 7. 流程稳定后再考虑 LangGraph。
 
 不建议现在就做：

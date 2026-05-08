@@ -3,12 +3,29 @@ from __future__ import annotations
 from pathlib import Path
 
 from .models import Message, Session, SessionStatus, utc_now
-from .storage import JsonStorage
+from .storage import RuntimeJsonStorage
 
 
 class SessionManager:
+    """训练会话管理器。
+
+    参数:
+        runtime_dir: 运行时目录。
+
+    返回值:
+        无。实例化后可创建、读取和更新会话。
+    """
+
     def __init__(self, runtime_dir: str | Path):
-        self.storage = JsonStorage(runtime_dir)
+        """初始化训练会话管理器。
+
+        参数:
+            runtime_dir: 运行时目录。
+
+        返回值:
+            无。
+        """
+        self.storage = RuntimeJsonStorage(runtime_dir)
 
     def create_session(self, user_id: str, problem_id: str, language: str = "Python") -> Session:
         session = Session(user_id=user_id, problem_id=problem_id, language=language)

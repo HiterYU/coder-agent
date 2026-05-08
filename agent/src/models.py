@@ -108,16 +108,28 @@ class Mistake(BaseModel):
     evidence: str
 
 
+class ExampleRunRecord(BaseModel):
+    index: int
+    passed: bool = False
+    input: str = ""
+    expected: str = ""
+    actual: str = ""
+    error: str = ""
+
+
 class ReviewResult(BaseModel):
     submission_id: str = Field(default_factory=lambda: new_id("sub"))
     session_id: str
     is_likely_correct: bool
     passed_sample_tests: bool = False
+    sample_test_results: list[ExampleRunRecord] = Field(default_factory=list)
     time_complexity: str = "Unknown"
     space_complexity: str = "Unknown"
     mistakes: list[Mistake] = Field(default_factory=list)
     feedback: str
     next_actions: list[str] = Field(default_factory=list)
+    # 本次复盘实际加载的 Skill 名称，只用于展示和审计，不参与判断。
+    used_skills: list[str] = Field(default_factory=list)
     created_at: str = Field(default_factory=utc_now)
 
 

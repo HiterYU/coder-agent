@@ -1,15 +1,44 @@
 from __future__ import annotations
 
+# 文件用途：根据题目、会话和用户画像生成分级提示。
+
 from .llm_client import LlmClient
 from .models import Problem, Session, UserProfile
 from .taxonomy import normalize_topic
 
 
 class HintEngine:
+    """分级提示生成引擎。
+
+    参数:
+        llm_client: 可选 LLM 客户端；未传入时创建默认客户端。
+
+    返回值:
+        无。实例化后可通过 generate_hint 生成提示。
+    """
+
     def __init__(self, llm_client: LlmClient | None = None):
+        """初始化分级提示生成引擎。
+
+        参数:
+            llm_client: 可选 LLM 客户端；未传入时创建默认客户端。
+
+        返回值:
+            无。
+        """
         self.llm = llm_client or LlmClient()
 
     def generate_hint(self, session: Session, problem: Problem, profile: UserProfile) -> dict:
+        """生成下一等级提示。
+
+        参数:
+            session: 当前训练会话。
+            problem: 当前题目。
+            profile: 用户画像。
+
+        返回值:
+            dict: 包含提示等级、提示内容、生成原因和是否泄露答案的字典。
+        """
         hint_level = self._next_hint_level(session)
         llm_hint = self._generate_llm_hint(session, problem, profile, hint_level)
         if llm_hint:
@@ -64,7 +93,7 @@ JSON 格式:
   "reveals_solution": false
 }}
 """
-        data = self.llm.complete_json(system, user)
+        data = self.llm.complete_json(system, user, agent_name="hint")
         if not data or "hint" not in data:
             return None
         data["hint_level"] = hint_level
