@@ -889,10 +889,12 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 # LeetCode Training Agent
 
 ## Setup
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
 
 ## Run
-streamlit run app.py
+./.venv/bin/python3 -m streamlit run app.py
 
 ## Demo User
 user_id: demo

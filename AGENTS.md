@@ -13,18 +13,17 @@
 
 ## Build, Test, and Development Commands
 
-所有 Python 命令使用 `python3`。
+本项目统一使用 `agent/.venv` 虚拟环境。首次安装用系统 `python3` 创建 `.venv`；创建完成后，运行、测试和调试命令必须使用项目虚拟环境里的 Python，例如 `./.venv/bin/python3 -m ...`。交互式 shell 若已执行 `source .venv/bin/activate`，也可以使用 `python3 -m ...`；文档和自动化命令优先写显式 `.venv` 路径。不要直接使用系统 Python 或裸 `streamlit run`。
 
 ```bash
 cd agent
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
+./.venv/bin/python3 -m pip install -r requirements.txt
+./.venv/bin/python3 -m streamlit run app.py
 ```
 
-- `pip install -r requirements.txt`：安装 Streamlit、Pydantic、OpenAI、Requests 等依赖。
-- `streamlit run app.py`：启动本地 Web 应用。
+- `./.venv/bin/python3 -m pip install -r requirements.txt`：安装 Streamlit、Pydantic、OpenAI、Requests 等依赖到项目虚拟环境。
+- `./.venv/bin/python3 -m streamlit run app.py`：使用项目虚拟环境启动本地 Web 应用。
 - 可选：设置 `OPENAI_API_KEY` 和 `OPENAI_MODEL` 启用 LLM；未设置时使用本地规则兜底。
 
 ## Coding Style & Naming Conventions
@@ -37,7 +36,7 @@ streamlit run app.py
 
 ```bash
 cd agent
-python3 -m pytest
+./.venv/bin/python3 -m pytest
 ```
 
 ## Commit & Pull Request Guidelines

@@ -18,21 +18,33 @@ agents/
 ```
 
 `skills.md` 必须带 YAML front matter。启动时只读取这些元数据并常驻内存，用户问题命中相似判断后才加载全文。
+`description` 要写清楚触发场景、输入上下文和该 Skill 要约束的工作流；正文保持短而具体，只放 Agent 执行本任务必须遵守的流程、输出契约、质量门槛和兜底策略。
 
 ```markdown
 ---
 name: code_review
-description: 对 LeetCode 提交代码做基于证据的复盘。
+description: 在 Review Agent 需要基于题目、会话、用户画像、提交代码和样例运行结果复盘 LeetCode 提交时加载；用于约束正确性判断、复杂度分析、错误 taxonomy、证据要求、JSON 输出和下一步动作。
 keywords:
   - 复盘
   - 代码
   - 复杂度
+  - taxonomy
 threshold: 1.0
 ---
 
-# Skills
+# Code Review Skill
 
-这里写完整 skill 规则。
+## 工作流程
+
+1. 先读取题目、会话、用户画像、提交代码和样例运行结果。
+2. 优先分析样例失败、返回格式、边界条件和复杂度。
+3. 每个错误都必须给出代码、思路或样例证据。
+
+## 输出契约
+
+- 只输出中文 JSON，不输出 Markdown。
+- 错误类型必须从调用方提供的 taxonomy 中选择。
+- 不得声称通过真实 LeetCode 判题，除非输入明确提供判题结果。
 ```
 
 加载顺序固定为：

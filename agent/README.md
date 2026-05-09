@@ -20,13 +20,15 @@
 cd agent
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
+
+项目依赖统一安装在 `agent/.venv`。后续运行、测试和调试命令都使用项目虚拟环境；未激活 `.venv` 时，使用 `./.venv/bin/python3`，避免误用系统 Python。
 
 ## 运行
 
 ```bash
-streamlit run app.py
+./.venv/bin/python3 -m streamlit run app.py
 ```
 
 浏览器打开 Streamlit 给出的本地地址。
@@ -59,12 +61,12 @@ base_url = "https://your-proxy.example.com/v1"
 
 `config.toml` 包含本地密钥，已被 git 忽略，不要提交。
 
-LLM 只会在 `agent/config.toml` 存在且 `[openai].api_key` 非空时启用。Streamlit 会缓存 `TrainingAgent`，所以修改 `config.toml` 后需要点击侧边栏“重新加载 LLM 配置”，或重启 `streamlit run app.py`。
+LLM 只会在 `agent/config.toml` 存在且 `[openai].api_key` 非空时启用。Streamlit 会缓存 `TrainingAgent`，所以修改 `config.toml` 后需要点击侧边栏“重新加载 LLM 配置”，或重启 `./.venv/bin/python3 -m streamlit run app.py`。
 
 可以用下面命令检查当前是否启用：
 
 ```bash
-python3 -c "from src.llm_client import LlmClient; c=LlmClient(); print(c.available, c.status_message)"
+./.venv/bin/python3 -c "from src.llm_client import LlmClient; c=LlmClient(); print(c.available, c.status_message)"
 ```
 
 ## Demo 用户
