@@ -4,10 +4,10 @@
 
 ## 功能
 
-- 输入 LeetCode URL 或 slug 实时获取题目
+- 从本地题库下拉选择题目，支持按 LeetCode URL 或 slug 补充导入
 - 单题训练会话
 - 支持 Tab 缩进和语法高亮的代码编辑器
-- Level 1-5 分级提示
+- Level 1-5 分级提示强度，超过 5 次后继续围绕最新上下文追问
 - 提交代码后的结构化复盘
 - Python 提交会运行题目样例，样例失败会直接标记为未通过
 - Agent 指令和 Skill 按需加载
@@ -209,21 +209,18 @@ app.py
 
 ## 一次完整训练流程
 
-### 1. 用户输入 LeetCode 题目
+### 1. 用户选择或导入 LeetCode 题目
 
-用户可以输入题目 slug：
+默认流程是在侧边栏从本地题库下拉选择题目，题目标题、难度和标签由 `ProblemStore.list_problems()` 从 `data/problems.json` 与 `.runtime/runtime.json` 汇总得到，用户不需要手动拼 slug。
+
+如果本地题库里没有目标题，可以在“从 LeetCode URL 或 slug 导入”里输入题目 slug 或 URL：
 
 ```text
 two-sum
-```
-
-也可以输入题目 URL：
-
-```text
 https://leetcode.com/problems/two-sum/
 ```
 
-调用链：
+导入调用链：
 
 ```text
 app.py
@@ -274,7 +271,7 @@ app.py
     -> ProfileEngine.update_after_hint()
 ```
 
-`HintEngine` 会根据 `session.hints_given` 自动决定下一个提示等级。第一次是 Level 1，之后逐级增加，最高 Level 5。
+`HintEngine` 会根据 `session.hints_given` 自动决定下一次提示强度。第一次是 Level 1，之后逐级增加，最高 Level 5。Level 1-5 表示泄题强度，不表示最多只能请求 5 次；第 6 次及以后会继续保持 Level 5，并根据用户最新输入、失败样例或代码细节继续追问式回答。
 
 ### 5. 用户提交代码
 

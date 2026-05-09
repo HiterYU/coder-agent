@@ -48,29 +48,89 @@ class TrainingAgent:
         self.hint_engine = HintEngine(self.llm)
         self.review_engine = ReviewEngine(self.llm)
 
-    def list_problems(self, filters: dict | None = None):
+    def list_problems(self, filters: dict | None = None) -> list[Problem]:
+        """列出本地和运行时缓存题目。
+
+        参数:
+            filters: 可选过滤条件，支持 difficulty 和 tag。
+
+        返回值:
+            list[Problem]: 符合条件的题目列表。
+        """
         return self.problem_store.list_problems(filters)
 
-    def get_problem(self, problem_id: str):
+    def get_problem(self, problem_id: str) -> Problem:
+        """读取指定题目。
+
+        参数:
+            problem_id: 题目 ID。
+
+        返回值:
+            Problem: 题目详情。
+        """
         return self.problem_store.get_problem(problem_id)
 
     def fetch_problem_from_leetcode(self, url_or_slug: str) -> Problem:
+        """从 LeetCode 拉取题目并写入运行时缓存。
+
+        参数:
+            url_or_slug: LeetCode 题目 URL 或 slug。
+
+        返回值:
+            Problem: 拉取并转换后的题目详情。
+        """
         problem = self.leetcode_client.fetch_problem(url_or_slug)
         return self.problem_store.upsert_problem(problem)
 
     def get_profile(self, user_id: str) -> UserProfile:
+        """读取或创建用户画像。
+
+        参数:
+            user_id: 用户 ID。
+
+        返回值:
+            UserProfile: 用户长期画像。
+        """
         profile = self.profile_engine.get_profile(user_id)
         self.profile_engine.save_profile(profile)
         return profile
 
     def create_session(self, user_id: str, problem_id: str, language: str = "Python") -> Session:
+        """创建一道题的训练会话。
+
+        参数:
+            user_id: 用户 ID。
+            problem_id: 题目 ID。
+            language: 当前练习语言。
+
+        返回值:
+            Session: 新建训练会话。
+        """
         self.get_profile(user_id)
         return self.session_manager.create_session(user_id, problem_id, language)
 
     def add_user_message(self, session: Session, message_type: str, content: str) -> Session:
+        """向会话追加用户输入。
+
+        参数:
+            session: 当前训练会话。
+            message_type: 输入类型，如 thought、question 或 code。
+            content: 用户输入内容。
+
+        返回值:
+            Session: 更新后的训练会话。
+        """
         return self.session_manager.add_message(session, "user", message_type, content)
 
     def generate_hint(self, session: Session) -> tuple[Session, UserProfile, dict]:
+        """为当前会话生成下一次提示。
+
+        参数:
+            session: 当前训练会话。
+
+        返回值:
+            tuple[Session, UserProfile, dict]: 更新后的会话、画像和提示数据。
+        """
         problem = self.problem_store.get_problem(session.problem_id)
         profile = self.profile_engine.get_profile(session.user_id)
         hint = self.hint_engine.generate_hint(session, problem, profile)
@@ -80,6 +140,15 @@ class TrainingAgent:
         return session, profile, hint
 
     def review_submission(self, session: Session, code: str) -> tuple[Session, UserProfile, ReviewResult]:
+        """复盘用户提交代码。
+
+        参数:
+            session: 当前训练会话。
+            code: 用户提交代码。
+
+        返回值:
+            tuple[Session, UserProfile, ReviewResult]: 更新后的会话、画像和复盘结果。
+        """
         problem = self.problem_store.get_problem(session.problem_id)
         profile = self.profile_engine.get_profile(session.user_id)
         session.current_code = code
@@ -91,6 +160,14 @@ class TrainingAgent:
         return session, profile, review
 
     def _save_review(self, review: ReviewResult) -> None:
+        """保存复盘结果。
+
+        参数:
+            review: 本次提交的复盘结果。
+
+        返回值:
+            无。
+        """
         self.profile_engine.storage.save_json(
             f"reviews/{review.submission_id}.json", review.model_dump(mode="json")
         )

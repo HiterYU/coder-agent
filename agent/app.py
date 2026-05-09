@@ -8,7 +8,7 @@ import streamlit as st
 from streamlit_ace import st_ace
 
 from src.formatting import format_profile, format_problem, format_review
-from src.models import Session
+from src.models import Problem, Session
 from src.training_agent import TrainingAgent
 
 
@@ -46,12 +46,63 @@ def init_state() -> None:
     st.session_state.setdefault("user_id", "demo")
     st.session_state.setdefault("language", "Python")
     st.session_state.setdefault("session", None)
+    st.session_state.setdefault("selected_problem_id", None)
     st.session_state.setdefault("leetcode_input", "two-sum")
     st.session_state.setdefault("loaded_problem_id", None)
     st.session_state.setdefault("last_review", None)
     st.session_state.setdefault("last_hint", None)
     st.session_state.setdefault("last_used_skills", [])
     st.session_state.setdefault("load_error", None)
+
+
+def problem_option_label(problem: Problem) -> str:
+    """生成题目下拉选项展示文案。
+
+    参数:
+        problem: 题目数据。
+
+    返回值:
+        str: 包含题号、标题、难度和标签的展示文案。
+    """
+    leetcode_prefix = f"{problem.leetcode_id}. " if problem.leetcode_id else ""
+    tags = " / ".join(problem.tags[:3]) if problem.tags else "未标注"
+    return f"{leetcode_prefix}{problem.title} ({problem.difficulty}) · {tags}"
+
+
+def reset_training_outputs() -> None:
+    """清空上一题的提示、复盘和错误状态。
+
+    参数:
+        无。
+
+    返回值:
+        无。
+    """
+    st.session_state.last_review = None
+    st.session_state.last_hint = None
+    st.session_state.last_used_skills = []
+    st.session_state.load_error = None
+
+
+def start_problem_session(agent: TrainingAgent, problem_id: str) -> None:
+    """基于本地题目创建新的训练会话。
+
+    参数:
+        agent: 训练 Agent 实例。
+        problem_id: 本地题库中的题目 ID。
+
+    返回值:
+        无。
+    """
+    problem = agent.get_problem(problem_id)
+    st.session_state.loaded_problem_id = problem.id
+    st.session_state.selected_problem_id = problem.id
+    st.session_state.session = agent.create_session(
+        st.session_state.user_id,
+        problem.id,
+        st.session_state.language,
+    )
+    reset_training_outputs()
 
 
 def render_sidebar(agent: TrainingAgent) -> None:
@@ -66,32 +117,45 @@ def render_sidebar(agent: TrainingAgent) -> None:
     with st.sidebar:
         st.header("训练设置")
         st.session_state.user_id = st.text_input("用户 ID", st.session_state.user_id)
+        languages = ["Python", "JavaScript", "Java", "C++"]
+        language_index = languages.index(st.session_state.language)
         st.session_state.language = st.selectbox(
-            "语言", ["Python", "JavaScript", "Java", "C++"], index=0
+            "语言", languages, index=language_index
         )
 
-        st.session_state.leetcode_input = st.text_input(
-            "LeetCode URL 或 slug",
-            st.session_state.leetcode_input,
-            placeholder="https://leetcode.com/problems/two-sum/ 或 two-sum",
-        )
-
-        if st.button("获取题目并开始", type="primary"):
-            try:
-                problem = agent.fetch_problem_from_leetcode(st.session_state.leetcode_input)
-                st.session_state.loaded_problem_id = problem.id
-                st.session_state.session = agent.create_session(
-                    st.session_state.user_id,
-                    problem.id,
-                    st.session_state.language,
-                )
-                st.session_state.last_review = None
-                st.session_state.last_hint = None
-                st.session_state.last_used_skills = []
-                st.session_state.load_error = None
+        problems = agent.list_problems()
+        problem_by_id = {problem.id: problem for problem in problems}
+        problem_ids = [problem.id for problem in problems]
+        if problem_ids:
+            if st.session_state.selected_problem_id not in problem_by_id:
+                st.session_state.selected_problem_id = problem_ids[0]
+            selected_index = problem_ids.index(st.session_state.selected_problem_id)
+            st.session_state.selected_problem_id = st.selectbox(
+                "本地题库",
+                problem_ids,
+                index=selected_index,
+                format_func=lambda problem_id: problem_option_label(problem_by_id[problem_id]),
+            )
+            if st.button("开始这道题", type="primary"):
+                start_problem_session(agent, st.session_state.selected_problem_id)
                 st.rerun()
-            except Exception as exc:
-                st.session_state.load_error = str(exc)
+        else:
+            st.warning("本地题库为空，请先导入题目。")
+
+        with st.expander("从 LeetCode URL 或 slug 导入"):
+            st.session_state.leetcode_input = st.text_input(
+                "LeetCode URL 或 slug",
+                st.session_state.leetcode_input,
+                placeholder="https://leetcode.com/problems/two-sum/ 或 two-sum",
+            )
+
+            if st.button("导入并开始"):
+                try:
+                    problem = agent.fetch_problem_from_leetcode(st.session_state.leetcode_input)
+                    start_problem_session(agent, problem.id)
+                    st.rerun()
+                except Exception as exc:
+                    st.session_state.load_error = str(exc)
 
         st.divider()
         render_llm_status(agent)
@@ -260,7 +324,8 @@ def render_training_controls(agent: TrainingAgent, session: Session) -> None:
         hint = st.session_state.last_hint
         render_used_skills(hint.get("used_skills", []))
         render_llm_call_status(agent)
-        st.info(f"Level {hint['hint_level']}: {hint['hint']}")
+        request_count = hint.get("hint_request_count", len(session.hints_given))
+        st.info(f"第 {request_count} 次提示 · Level {hint['hint_level']}: {hint['hint']}")
 
 
 def render_submission(agent: TrainingAgent, session: Session) -> None:
@@ -343,7 +408,7 @@ def main() -> None:
 
     session = ensure_session(agent)
     if session is None:
-        st.info("请在左侧输入 LeetCode 题目 URL 或 slug，然后点击“获取题目并开始”。")
+        st.info("请在左侧从本地题库选择一道题，然后点击“开始这道题”。")
         return
 
     left, right = st.columns([1.05, 0.95])
