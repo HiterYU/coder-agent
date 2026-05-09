@@ -114,8 +114,9 @@ Streamlit UI
 TrainingAgent
   ├── LeetCodeClient
   ├── ProblemStore
-  ├── HintEngine -> agents/hint/agent.md + agents/hint/skills.md
-  ├── ReviewEngine -> agents/review/agent.md + agents/review/skills.md
+  ├── HintEngine -> LlmClient -> agents/hint/agent.md + agents/hint/skills.md
+  ├── ReviewEngine -> LlmClient -> agents/review/agent.md + agents/review/skills.md
+  ├── ToolRegistry -> src/tools/
   ├── PythonSubmissionRunner
   ├── ProfileEngine
   ↓
@@ -135,6 +136,19 @@ LLM 调用会按 Agent 名称加载 `agents/<agent_name>/agent.md` 和命中的 
 启动时只读取 `skills.md` 顶部 YAML 元数据并保存在内存中；每次用户问题进入对应 Agent 时，系统会用用户上下文和元数据做相似判断，命中后才加载 skill 全文。UI 只显示“已使用 skill: ...”，不会打印全文。
 
 加载顺序固定为 `agent.md`、命中的 `skills.md` 全文、代码中的本次任务指令。新增 Agent 时，在 `agents/` 下创建同名目录，并在调用 `LlmClient.complete_text(...)` 或 `complete_json(...)` 时传入 `agent_name="目录名"`。
+
+## LLM 工具调用
+
+`LlmClient` 会按 Agent 名称暴露本地工具 schema。模型返回 function call 时，`ToolRegistry` 负责执行 `src/tools/` 中的本地 handler，并把工具结果回传给模型继续生成最终文本或 JSON。
+
+当前默认工具：
+
+- `get_problem`：读取本地题库或运行时缓存中的题目。
+- `search_problem_cache`：按关键词、难度或标签搜索题目缓存。
+- `fetch_leetcode_problem`：从 LeetCode GraphQL 拉取题目并写入运行时缓存。
+- `run_python_examples`：运行 Python 样例执行器；只对 Review Agent 开放，结果不是 LeetCode 在线判题。
+
+工具使用边界写在 `agents/hint/agent.md`、`agents/review/agent.md` 和对应 `skills.md` 中。UI 会在 LLM 参与生成后展示最近一次实际调用的工具名称。
 
 ## Python 样例执行
 
@@ -310,10 +324,12 @@ app.py
 | `src/leetcode_client.py` | 从 LeetCode 实时获取题目 |
 | `src/models.py` | 所有核心数据模型 |
 | `src/problem_store.py` | 查询题目和缓存实时题目 |
+| `src/code_templates.py` | 解析 LeetCode 函数签名和包装函数体提交 |
 | `src/session_manager.py` | 创建、更新、保存会话 |
 | `src/hint_engine.py` | 生成分级提示 |
 | `src/review_engine.py` | 代码复盘和错误识别 |
 | `src/submission_runner.py` | Python 提交样例执行器 |
+| `src/tools/` | LLM 工具注册表和默认本地工具 |
 | `src/agent_instructions.py` | Agent 指令和 Skill 渐进式加载 |
 | `src/profile_engine.py` | 用户失误画像读取和更新 |
 | `src/llm_client.py` | OpenAI API 封装 |

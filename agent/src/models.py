@@ -72,6 +72,12 @@ class Problem(BaseModel):
     description: str
     examples: list[Example] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    # LeetCode 返回的 Python 初始代码模板，用于还原函数签名。
+    starter_code: str = ""
+    # Python 函数签名，例如 `def twoSum(self, nums: List[int], target: int) -> List[int]:`。
+    function_signature: str = ""
+    # Python 方法名，例如 `twoSum`。
+    function_name: str = ""
     expected_approaches: list[Approach] = Field(default_factory=list)
     common_mistakes: list[CommonMistake] = Field(default_factory=list)
     similar_problem_ids: list[str] = Field(default_factory=list)

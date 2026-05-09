@@ -7,6 +7,11 @@ from pathlib import Path
 import streamlit as st
 from streamlit_ace import st_ace
 
+from src.code_templates import (
+    extract_python_body_code,
+    get_python_function_signature,
+    is_python_body_mode_available,
+)
 from src.formatting import format_profile, format_problem, format_review
 from src.models import Problem, Session
 from src.training_agent import TrainingAgent
@@ -233,8 +238,16 @@ def render_code_editor(label: str, value: str, key: str, height: int) -> str:
     """
     st.caption(label)
     language = EDITOR_LANGUAGE_MAP.get(st.session_state.language, "python")
+    content_key = f"{key}_content"
+    seed_key = f"{key}_seed"
+    if content_key not in st.session_state:
+        st.session_state[content_key] = value
+    elif st.session_state.get(seed_key) != value and not st.session_state[content_key].strip():
+        st.session_state[content_key] = value
+    st.session_state[seed_key] = value
+
     code = st_ace(
-        value=value,
+        value=st.session_state[content_key],
         language=language,
         theme="github",
         key=key,
@@ -247,7 +260,40 @@ def render_code_editor(label: str, value: str, key: str, height: int) -> str:
         auto_update=True,
         placeholder="在这里输入代码。",
     )
-    return code if code is not None else value
+    if code is not None:
+        st.session_state[content_key] = code
+    return st.session_state[content_key]
+
+
+def render_solution_code_editor(problem: Problem, session: Session, height: int) -> str:
+    """渲染答题代码编辑器。
+
+    参数:
+        problem: 当前题目。
+        session: 当前训练会话。
+        height: 编辑器高度，单位为像素。
+
+    返回值:
+        str: 用户当前输入的函数体或完整代码。
+    """
+    if is_python_body_mode_available(problem, session.language):
+        signature = get_python_function_signature(problem)
+        st.caption("函数签名")
+        st.code(f"class Solution:\n    {signature}", language="python")
+        body_code = extract_python_body_code(problem, session.current_code or "")
+        return render_code_editor(
+            "函数体",
+            body_code,
+            f"submission_body_{session.session_id}",
+            height,
+        )
+
+    return render_code_editor(
+        "最终代码",
+        session.current_code or "",
+        f"submission_code_{session.session_id}",
+        height,
+    )
 
 
 def render_llm_status(agent: TrainingAgent) -> None:
@@ -277,7 +323,7 @@ def render_llm_status(agent: TrainingAgent) -> None:
 
 
 def render_training_controls(agent: TrainingAgent, session: Session) -> None:
-    """渲染思路、问题和阶段性代码输入区。
+    """渲染思路、问题输入区。
 
     参数:
         agent: 训练 Agent 实例。
@@ -286,21 +332,19 @@ def render_training_controls(agent: TrainingAgent, session: Session) -> None:
     返回值:
         无。
     """
-    st.subheader("输入思路或代码")
-    input_type = st.radio("输入类型", ["thought", "question", "code"], horizontal=True)
-    if input_type == "code":
-        content = render_code_editor(
-            "内容",
-            session.current_code or "",
-            f"training_code_{session.session_id}",
-            360,
-        )
-    else:
-        content = st.text_area(
-            "内容",
-            height=220,
-            placeholder="写下你的解题思路或问题。",
-        )
+    st.subheader("输入思路或问题")
+    input_type = st.radio(
+        "输入类型",
+        ["thought", "question"],
+        horizontal=True,
+        key=f"training_input_type_{session.session_id}",
+    )
+    content = st.text_area(
+        "内容",
+        height=180,
+        placeholder="写下你的解题思路或问题。",
+        key=f"training_text_{session.session_id}",
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -338,14 +382,11 @@ def render_submission(agent: TrainingAgent, session: Session) -> None:
     返回值:
         无。
     """
-    st.subheader("提交代码")
-    default_code = session.current_code or ""
-    code = render_code_editor(
-        "最终代码",
-        default_code,
-        f"submission_code_{session.session_id}",
-        520,
-    )
+    problem = agent.get_problem(session.problem_id)
+    st.subheader("答题代码")
+    code = render_solution_code_editor(problem, session, 440)
+    session.current_code = code
+    st.session_state.session = session
     if st.button("提交并复盘", type="primary"):
         session, profile, review = agent.review_submission(session, code)
         st.session_state.session = session
@@ -386,6 +427,8 @@ def render_llm_call_status(agent: TrainingAgent) -> None:
         st.caption(f"LLM 未使用或调用失败: {agent.llm.last_error}")
     elif agent.llm.available:
         st.caption("LLM 已参与本次生成。")
+    if agent.llm.last_used_tools:
+        st.caption(f"已调用工具: {', '.join(agent.llm.last_used_tools)}")
 
 
 def main() -> None:
@@ -417,8 +460,8 @@ def main() -> None:
         render_chat_history(session)
 
     with right:
-        render_training_controls(agent, session)
         render_submission(agent, session)
+        render_training_controls(agent, session)
 
 
 if __name__ == "__main__":

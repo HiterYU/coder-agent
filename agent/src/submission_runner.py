@@ -12,19 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .code_templates import build_python_submission_code, infer_method_name
 from .models import Example, Problem
-
-
-PROBLEM_METHOD_MAP = {
-    "two-sum": "twoSum",
-    "valid-parentheses": "isValid",
-    "best-time-to-buy-and-sell-stock": "maxProfit",
-    "binary-search": "search",
-    "maximum-subarray": "maxSubArray",
-    "climbing-stairs": "climbStairs",
-    "longest-substring-without-repeating-characters": "lengthOfLongestSubstring",
-    "number-of-islands": "numIslands",
-}
 
 
 @dataclass(frozen=True)
@@ -143,10 +132,11 @@ class PythonSubmissionRunner:
         if not parsed_cases:
             return SubmissionRunResult(skipped_reason="题目样例无法解析为可执行测试。")
 
+        argument_names = list(parsed_cases[0].arguments)
         payload = {
-            "code": code,
+            "code": build_python_submission_code(problem, code, argument_names),
             "problem_id": problem.id,
-            "method_name": self._infer_method_name(problem.id),
+            "method_name": self._infer_method_name(problem),
             "cases": [
                 {"index": case.index, "arguments": case.arguments, "expected": case.expected}
                 for case in parsed_cases
@@ -237,13 +227,10 @@ class PythonSubmissionRunner:
             cases.append(ExampleCase(index=index, arguments=arguments, expected=expected))
         return cases
 
-    def _infer_method_name(self, problem_id: str) -> str:
-        if problem_id in PROBLEM_METHOD_MAP:
-            return PROBLEM_METHOD_MAP[problem_id]
-        words = [word for word in re.split(r"[^a-zA-Z0-9]+", problem_id) if word]
-        if not words:
-            return ""
-        return words[0] + "".join(word[:1].upper() + word[1:] for word in words[1:])
+    def _infer_method_name(self, problem: Problem) -> str:
+        if problem.function_name:
+            return problem.function_name
+        return infer_method_name(problem.id)
 
     def _runner_script_path(self) -> Path:
         script = Path(tempfile.gettempdir()) / "leetcode_training_submission_runner.py"

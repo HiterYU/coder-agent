@@ -6,6 +6,7 @@ from html import unescape
 import requests
 from bs4 import BeautifulSoup
 
+from .code_templates import extract_python_function_metadata, select_python_starter_code
 from .models import CommonMistake, Example, Problem
 
 
@@ -21,6 +22,11 @@ query questionData($titleSlug: String!) {
     difficulty
     content
     exampleTestcases
+    codeSnippets {
+      lang
+      langSlug
+      code
+    }
     topicTags {
       name
     }
@@ -65,6 +71,8 @@ class LeetCodeClient:
         constraints = self._extract_constraints(text)
         tags = [item["name"] for item in question.get("topicTags", [])]
         description = self._strip_constraints(text)
+        starter_code = select_python_starter_code(question.get("codeSnippets") or [])
+        function_signature, function_name = extract_python_function_metadata(starter_code)
 
         return Problem(
             id=question["titleSlug"],
@@ -75,6 +83,9 @@ class LeetCodeClient:
             description=description,
             examples=examples,
             constraints=constraints,
+            starter_code=starter_code,
+            function_signature=function_signature,
+            function_name=function_name,
             expected_approaches=[],
             common_mistakes=self._default_mistakes(tags),
             similar_problem_ids=[],

@@ -8,6 +8,7 @@ from typing import Any
 
 from .agent_instructions import AgentInstructionLoader
 from .config import load_openai_config
+from .tools import ToolRegistry, build_default_tool_registry
 
 
 class LlmClient:
@@ -52,8 +53,11 @@ class LlmClient:
         self.config_path = Path(config_path)
         config = load_openai_config(self.config_path)
         self.instruction_loader = AgentInstructionLoader(agents_dir)
+        self.tool_registry: ToolRegistry = build_default_tool_registry(project_dir)
         # 最近一次 LLM 调用实际加载的 Skill 名称，用于 UI 展示。
         self.last_used_skills: list[str] = []
+        # 最近一次 LLM 调用实际执行的工具名称，用于 UI 展示和审计。
+        self.last_used_tools: list[str] = []
         # LLM 初始化状态说明，用于 UI 展示和排查配置问题。
         self.status_message = "未初始化。"
         # 最近一次 LLM 调用失败原因。
@@ -111,6 +115,7 @@ class LlmClient:
         """
         if not self._client:
             self.last_used_skills = []
+            self.last_used_tools = []
             self.last_error = self.status_message
             return None
         try:
@@ -118,19 +123,76 @@ class LlmClient:
                 agent_name, system, user
             )
             self.last_used_skills = prompt_result.used_skills
-            response = self._client.responses.create(
-                model=self.model,
-                instructions=prompt_result.system_prompt,
-                input=[
-                    {"role": "user", "content": user},
-                ],
-            )
+            self.last_used_tools = []
+            try:
+                response = self._create_response_with_tools(
+                    prompt_result.system_prompt, user, agent_name
+                )
+            except Exception:
+                self.last_used_tools = []
+                response = self._client.responses.create(
+                    model=self.model,
+                    instructions=prompt_result.system_prompt,
+                    input=[
+                        {"role": "user", "content": user},
+                    ],
+                )
             self.last_error = ""
-            return response.output_text
+            return _response_output_text(response)
         except Exception as exc:
             self.last_used_skills = []
+            self.last_used_tools = []
             self.last_error = f"LLM 调用失败：{exc}"
             return None
+
+    def _create_response_with_tools(self, system_prompt: str, user: str, agent_name: str | None):
+        """调用 Responses API，并在模型请求时执行本地工具。
+
+        参数:
+            system_prompt: 拼接后的系统提示词。
+            user: 用户提示词。
+            agent_name: 当前 Agent 名称。
+
+        返回值:
+            Any: 最终模型响应对象。
+        """
+        tools = self.tool_registry.schemas_for_agent(agent_name)
+        conversation: list[Any] = [{"role": "user", "content": user}]
+
+        for _ in range(4):
+            request_args: dict[str, Any] = {
+                "model": self.model,
+                "instructions": system_prompt,
+                "input": conversation,
+            }
+            if tools:
+                request_args["tools"] = tools
+
+            response = self._client.responses.create(**request_args)
+            tool_calls = _extract_tool_calls(response)
+            if not tool_calls:
+                return response
+
+            for call in tool_calls:
+                conversation.append(
+                    {
+                        "type": "function_call",
+                        "call_id": call["call_id"],
+                        "name": call["name"],
+                        "arguments": call["arguments"],
+                    }
+                )
+                tool_result = self.tool_registry.execute(call["name"], call["arguments"])
+                self.last_used_tools.append(call["name"])
+                conversation.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call["call_id"],
+                        "output": json.dumps(tool_result, ensure_ascii=False),
+                    }
+                )
+
+        raise RuntimeError("工具调用轮次超过限制。")
 
     def complete_json(
         self, system: str, user: str, agent_name: str | None = None
@@ -161,3 +223,72 @@ class LlmClient:
                     return None
         self.last_error = "LLM 返回内容不是合法 JSON。"
         return None
+
+
+def _response_output_text(response) -> str:
+    """提取 Responses API 响应文本。
+
+    参数:
+        response: OpenAI SDK 响应对象。
+
+    返回值:
+        str: 响应文本；无法提取时返回空字符串。
+    """
+    output_text = _read_field(response, "output_text")
+    if isinstance(output_text, str):
+        return output_text
+
+    texts: list[str] = []
+    for item in _read_field(response, "output") or []:
+        if _read_field(item, "type") == "message":
+            for content in _read_field(item, "content") or []:
+                text = _read_field(content, "text")
+                if isinstance(text, str):
+                    texts.append(text)
+        elif _read_field(item, "type") in {"output_text", "text"}:
+            text = _read_field(item, "text")
+            if isinstance(text, str):
+                texts.append(text)
+    return "\n".join(texts)
+
+
+def _extract_tool_calls(response) -> list[dict[str, str]]:
+    """从 Responses API 响应中提取 function call。
+
+    参数:
+        response: OpenAI SDK 响应对象。
+
+    返回值:
+        list[dict[str, str]]: 工具调用列表，每项包含 call_id、name 和 arguments。
+    """
+    tool_calls: list[dict[str, str]] = []
+    for item in _read_field(response, "output") or []:
+        if _read_field(item, "type") != "function_call":
+            continue
+        name = _read_field(item, "name")
+        arguments = _read_field(item, "arguments") or "{}"
+        call_id = _read_field(item, "call_id") or _read_field(item, "id")
+        if isinstance(name, str) and isinstance(arguments, str) and isinstance(call_id, str):
+            tool_calls.append(
+                {
+                    "call_id": call_id,
+                    "name": name,
+                    "arguments": arguments,
+                }
+            )
+    return tool_calls
+
+
+def _read_field(value, key: str):
+    """兼容读取 SDK 对象或字典字段。
+
+    参数:
+        value: SDK 对象或字典。
+        key: 字段名。
+
+    返回值:
+        Any: 字段值；不存在时返回 None。
+    """
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
