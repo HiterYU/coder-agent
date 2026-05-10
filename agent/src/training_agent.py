@@ -82,6 +82,164 @@ class TrainingAgent:
         problem = self.leetcode_client.fetch_problem(url_or_slug)
         return self.problem_store.upsert_problem(problem)
 
+    def fetch_problem_directory_from_leetcode(
+        self,
+        limit: int | None = None,
+        include_paid: bool = False,
+        difficulty: str = "",
+    ) -> dict:
+        """从 LeetCode 中国站拉取题目目录摘要并写入运行时缓存。
+
+        参数:
+            limit: 最多抓取多少道题；为空时扫描配置中的目录可见题目。
+            include_paid: 是否包含付费题。
+            difficulty: 可选难度过滤，支持 Easy、Medium、Hard。
+
+        返回值:
+            dict: 包含目录摘要和扫描数量的缓存结果。
+        """
+        raw_items = []
+        selected_items = []
+        offset = 0
+        page_size = self.leetcode_client.page_size
+        filters = self._leetcode_directory_filters(difficulty)
+
+        while True:
+            data = self.leetcode_client.fetch_question_list_by_range(
+                offset=offset,
+                limit=page_size,
+                filters=filters,
+            )
+            block = data.get("data", {}).get("problemsetQuestionList", {})
+            batch = block.get("questions") or []
+            raw_items.extend(batch)
+
+            for item in batch:
+                if not include_paid and item.get("paidOnly"):
+                    continue
+                item_difficulty = self._normalize_leetcode_directory_difficulty(
+                    item.get("difficulty")
+                )
+                if difficulty and item_difficulty != difficulty:
+                    continue
+                selected_items.append(item)
+                if limit is not None and len(selected_items) >= limit:
+                    break
+
+            if limit is not None and len(selected_items) >= limit:
+                break
+            if not block.get("hasMore") or not batch:
+                break
+            offset += page_size
+
+        entries = [self._leetcode_directory_entry(item) for item in selected_items]
+        storage = RuntimeJsonStorage(self.runtime_dir)
+        storage.save_json(
+            "leetcode_directories/latest.json",
+            {
+                "category_slug": self.leetcode_client.category_slug,
+                "include_paid": include_paid,
+                "difficulty": difficulty,
+                "scanned": len(raw_items),
+                "selected": len(entries),
+                "items": entries,
+            },
+        )
+
+        return {
+            "scanned": len(raw_items),
+            "selected": len(entries),
+            "items": entries,
+        }
+
+    def _leetcode_directory_filters(self, difficulty: str) -> dict:
+        """生成 LeetCode 中国站目录 GraphQL 过滤条件。
+
+        参数:
+            difficulty: 可选难度过滤，支持 Easy、Medium、Hard。
+
+        返回值:
+            dict: GraphQL QuestionListFilterInput。
+        """
+        if not difficulty:
+            return {}
+        return {"difficulty": difficulty.upper()}
+
+    def _normalize_leetcode_directory_difficulty(self, difficulty: object) -> str:
+        """标准化 LeetCode 目录题目难度。
+
+        参数:
+            difficulty: LeetCode 目录接口返回的难度值。
+
+        返回值:
+            str: Easy、Medium、Hard 或原始字符串。
+        """
+        value = str(difficulty or "").strip()
+        difficulty_map = {
+            "EASY": "Easy",
+            "Easy": "Easy",
+            "简单": "Easy",
+            "MEDIUM": "Medium",
+            "Medium": "Medium",
+            "中等": "Medium",
+            "HARD": "Hard",
+            "Hard": "Hard",
+            "困难": "Hard",
+        }
+        return difficulty_map.get(value, value)
+
+    def get_cached_leetcode_directory(self) -> dict:
+        """读取最近一次缓存的 LeetCode 题目目录摘要。
+
+        参数:
+            无。
+
+        返回值:
+            dict: 最近一次目录摘要缓存；不存在时返回空目录。
+        """
+        storage = RuntimeJsonStorage(self.runtime_dir)
+        return storage.load_json(
+            "leetcode_directories/latest.json",
+            {
+                "category_slug": self.leetcode_client.category_slug,
+                "include_paid": False,
+                "difficulty": "",
+                "scanned": 0,
+                "selected": 0,
+                "items": [],
+            },
+        )
+
+    def _leetcode_directory_entry(self, item: dict) -> dict:
+        """把 LeetCode 中国站目录条目转换为本地缓存摘要。
+
+        参数:
+            item: LeetCode 中国站题目目录条目。
+
+        返回值:
+            dict: 本地目录缓存摘要。
+        """
+        tags = [
+            {
+                "name": tag.get("name", ""),
+                "name_translated": tag.get("nameTranslated", ""),
+                "slug": tag.get("slug", ""),
+            }
+            for tag in item.get("topicTags") or []
+        ]
+        return {
+            "leetcode_id": item.get("frontendQuestionId"),
+            "id": item.get("titleSlug"),
+            "title": item.get("title"),
+            "title_cn": item.get("titleCn"),
+            "difficulty": self._normalize_leetcode_directory_difficulty(
+                item.get("difficulty")
+            ),
+            "paid_only": item.get("paidOnly", False),
+            "ac_rate": item.get("acRate"),
+            "tags": tags,
+        }
+
     def get_profile(self, user_id: str) -> UserProfile:
         """读取或创建用户画像。
 

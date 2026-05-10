@@ -1,6 +1,20 @@
-# 文件用途：示例配置文件；复制为 config.toml 后填写本地 OpenAI-compatible 配置。
+# 文件用途：示例配置文件；复制为 config.toml 后填写本地 LLM 和 LeetCode 配置。
 
 [openai]
 api_key = ""
 model = "gpt-5.5"
 base_url = ""
+
+[leetcode]
+# LeetCode 中国站 csrftoken；没有登录态时可留空。
+csrftoken = ""
+# true 时优先请求 leetcode.cn，false 时优先请求 leetcode.com。
+prefer_cn = true
+# 网络失败时的最大尝试次数。
+retry_count = 5
+# 单次 HTTP 请求超时时间，单位秒。
+timeout = 15
+# 中国站题库列表分类。
+category_slug = "all-code-essentials"
+# 中国站题库列表每页数量。
+page_size = 50

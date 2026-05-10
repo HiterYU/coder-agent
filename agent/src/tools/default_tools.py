@@ -75,19 +75,53 @@ def build_default_tool_registry(project_dir) -> ToolRegistry:
     registry.register(
         ToolDefinition(
             name="fetch_leetcode_problem",
-            description="从 LeetCode GraphQL 拉取题目并写入运行时缓存；仅在本地题库缺失或需要刷新题面时使用。",
+            description="从 LeetCode GraphQL 拉取题目并写入运行时缓存；支持 leetcode.com 和 leetcode.cn。",
             parameters={
                 "type": "object",
                 "properties": {
                     "url_or_slug": {
                         "type": "string",
-                        "description": "LeetCode 题目 URL 或 slug，例如 https://leetcode.com/problems/two-sum/。",
+                        "description": "LeetCode 题目 URL 或 slug，例如 https://leetcode.cn/problems/two-sum/。",
                     }
                 },
                 "required": ["url_or_slug"],
                 "additionalProperties": False,
             },
             handler=_fetch_leetcode_problem,
+            agent_names={"hint", "review"},
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="search_leetcode_problem_list",
+            description="在线搜索 LeetCode 中国站题目列表，用于按题号、标题、slug 或标签查找题目；不会写入本地缓存。",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "关键词，可匹配题号、英文标题、中文标题、slug 或标签。",
+                    },
+                    "difficulty": {
+                        "type": "string",
+                        "description": "可选难度：Easy、Medium 或 Hard。",
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "可选标签，可匹配英文标签、中文标签或 tag slug。",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "最多返回多少道题，默认 10，最大 50。",
+                    },
+                    "scan_limit": {
+                        "type": "integer",
+                        "description": "最多在线扫描多少道题，默认 500，最大 3000。",
+                    },
+                },
+                "additionalProperties": False,
+            },
+            handler=_search_leetcode_problem_list,
             agent_names={"hint", "review"},
         )
     )
@@ -170,6 +204,31 @@ def _fetch_leetcode_problem(arguments: dict[str, Any], context: ToolContext) -> 
     return _problem_to_tool_dict(stored_problem)
 
 
+def _search_leetcode_problem_list(arguments: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    query = str(arguments.get("query") or "").strip().lower()
+    difficulty = str(arguments.get("difficulty") or "").strip()
+    tag = str(arguments.get("tag") or "").strip().lower()
+    limit = min(max(int(arguments.get("limit") or 10), 1), 50)
+    scan_limit = min(max(int(arguments.get("scan_limit") or 500), limit), 3000)
+
+    problems = LeetCodeClient(prefer_cn=True).fetch_problem_list(limit=scan_limit)
+    matched = []
+    for problem in problems:
+        if difficulty and problem.get("difficulty") != difficulty:
+            continue
+        if tag and tag not in _leetcode_list_problem_tags_text(problem):
+            continue
+        if query and query not in _leetcode_list_problem_search_text(problem):
+            continue
+        matched.append(_leetcode_list_problem_to_tool_dict(problem))
+
+    return {
+        "scanned": len(problems),
+        "count": len(matched),
+        "problems": matched[:limit],
+    }
+
+
 def _run_python_examples(arguments: dict[str, Any], context: ToolContext) -> dict[str, Any]:
     problem_id = _read_required_string(arguments, "problem_id")
     code = _read_required_string(arguments, "code")
@@ -203,6 +262,51 @@ def _problem_search_text(problem: Problem) -> str:
         " ".join(problem.tags),
         problem.description,
     ]
+    return " ".join(parts).lower()
+
+
+def _leetcode_list_problem_to_tool_dict(problem: dict[str, Any]) -> dict[str, Any]:
+    tags = [
+        {
+            "name": item.get("name", ""),
+            "name_translated": item.get("nameTranslated", ""),
+            "slug": item.get("slug", ""),
+        }
+        for item in problem.get("topicTags") or []
+    ]
+    return {
+        "leetcode_id": problem.get("frontendQuestionId"),
+        "id": problem.get("titleSlug"),
+        "title": problem.get("title"),
+        "title_cn": problem.get("titleCn"),
+        "difficulty": problem.get("difficulty"),
+        "paid_only": problem.get("paidOnly", False),
+        "ac_rate": problem.get("acRate"),
+        "tags": tags,
+    }
+
+
+def _leetcode_list_problem_search_text(problem: dict[str, Any]) -> str:
+    parts = [
+        str(problem.get("frontendQuestionId") or ""),
+        str(problem.get("title") or ""),
+        str(problem.get("titleCn") or ""),
+        str(problem.get("titleSlug") or ""),
+        _leetcode_list_problem_tags_text(problem),
+    ]
+    return " ".join(parts).lower()
+
+
+def _leetcode_list_problem_tags_text(problem: dict[str, Any]) -> str:
+    parts = []
+    for item in problem.get("topicTags") or []:
+        parts.extend(
+            [
+                str(item.get("name") or ""),
+                str(item.get("nameTranslated") or ""),
+                str(item.get("slug") or ""),
+            ]
+        )
     return " ".join(parts).lower()
 
 

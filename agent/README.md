@@ -33,11 +33,11 @@ python3 -m pip install -r requirements.txt
 
 浏览器打开 Streamlit 给出的本地地址。
 
-## 可选 LLM 配置
+## 可选本地配置
 
 没有 API key 也能运行，系统会使用本地规则兜底。
 
-如果要使用 OpenAI API，复制示例配置并填写本地 `config.toml`：
+复制示例配置后，可以在本地 `config.toml` 里配置 LLM 和 LeetCode 抓题：
 
 ```bash
 cp config.example.toml config.toml
@@ -48,6 +48,14 @@ cp config.example.toml config.toml
 api_key = "your_api_key"
 model = "gpt-4.1-mini"
 base_url = ""
+
+[leetcode]
+csrftoken = ""
+prefer_cn = true
+retry_count = 5
+timeout = 15
+category_slug = "all-code-essentials"
+page_size = 50
 ```
 
 如果使用 OpenAI-compatible 代理或第三方兼容服务，填写自定义地址：
@@ -61,7 +69,7 @@ base_url = "https://your-proxy.example.com/v1"
 
 `config.toml` 包含本地密钥，已被 git 忽略，不要提交。
 
-LLM 只会在 `agent/config.toml` 存在且 `[openai].api_key` 非空时启用。Streamlit 会缓存 `TrainingAgent`，所以修改 `config.toml` 后需要点击侧边栏“重新加载 LLM 配置”，或重启 `./.venv/bin/python3 -m streamlit run app.py`。
+LLM 只会在 `agent/config.toml` 存在且 `[openai].api_key` 非空时启用。LeetCode 抓题会读取 `[leetcode]`，其中 `csrftoken` 可留空；需要中国站登录态时再填写。Streamlit 会缓存 `TrainingAgent`，所以修改 `config.toml` 后需要点击侧边栏“重新加载 LLM 配置”，或重启应用。
 
 可以用下面命令检查当前是否启用：
 
