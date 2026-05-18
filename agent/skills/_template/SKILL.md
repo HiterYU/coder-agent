@@ -1,6 +1,8 @@
 ---
 name: your_skill_name
-description: 用一句话说明这个 skill 做什么，并写清楚何时加载；包含触发场景、输入上下文和它要约束的输出或工作流。
+description: 用一句话说明这个 Skill 做什么，并写清楚何时加载；包含触发场景、输入上下文和它要约束的输出或工作流。
+agents:
+  - your_agent_name
 keywords:
   - keyword_1
   - keyword_2

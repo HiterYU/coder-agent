@@ -1,58 +1,56 @@
 # Agent 指令目录
 
-每个子目录对应一个可被 LLM 调用加载的 Agent。
-
-目录约定：
+本目录按 Claude Code subagents 的组织方式维护项目内子代理。每个子代理是一个独立 Markdown 文件，文件名即代码调用时使用的 `agent_name`。
 
 ```text
 agents/
-  hint/
-    agent.md
-    skills.md
-  review/
-    agent.md
-    skills.md
-  your_agent/
-    agent.md
-    skills.md
+  hint.md
+  review.md
+  _template.md
 ```
 
-`skills.md` 必须带 YAML front matter。启动时只读取这些元数据并常驻内存，用户问题命中相似判断后才加载全文。
-`description` 要写清楚触发场景、输入上下文和该 Skill 要约束的工作流；正文保持短而具体，只放 Agent 执行本任务必须遵守的流程、输出契约、质量门槛和兜底策略。
+## 文件格式
+
+每个 Agent 文件必须包含 YAML front matter：
 
 ```markdown
 ---
-name: code_review
-description: 在 Review Agent 需要基于题目、会话、用户画像、提交代码和样例运行结果复盘 LeetCode 提交时加载；用于约束正确性判断、复杂度分析、错误 taxonomy、证据要求、JSON 输出和下一步动作。
-keywords:
-  - 复盘
-  - 代码
-  - 复杂度
-  - taxonomy
-threshold: 1.0
+name: hint
+description: 在用户解 LeetCode 题卡住、请求提示、澄清题意或需要下一步检查方向时使用。
+tools:
+  - get_problem
+  - search_problem_cache
 ---
 
-# Code Review Skill
+# Hint Agent
 
-## 工作流程
-
-1. 先读取题目、会话、用户画像、提交代码和样例运行结果。
-2. 优先分析样例失败、返回格式、边界条件和复杂度。
-3. 每个错误都必须给出代码、思路或样例证据。
-
-## 输出契约
-
-- 只输出中文 JSON，不输出 Markdown。
-- 错误类型必须从调用方提供的 taxonomy 中选择。
-- 不得声称通过真实 LeetCode 判题，除非输入明确提供判题结果。
+这里写角色、职责、边界和工具使用规则。
 ```
+
+字段约定：
+
+- `name`：Agent 名称，需和 `LlmClient.complete_text(...)` 或 `complete_json(...)` 的 `agent_name` 一致。
+- `description`：说明何时使用该 Agent。
+- `tools`：声明该 Agent 允许使用的工具；真实工具权限仍由 `src/tools/default_tools.py` 控制。
+
+## Skill 目录
+
+通用或专门技能放在同级 `../skills/<skill-name>/SKILL.md`：
+
+```text
+skills/
+  leetcode-leveled-hint/
+    SKILL.md
+  leetcode-code-review/
+    SKILL.md
+```
+
+`SKILL.md` 必须带 YAML front matter。启动时只读取元数据并常驻内存，用户问题命中相似判断后才加载全文。
 
 加载顺序固定为：
 
-1. `agent.md`
-2. 命中的 `skills.md` 全文
+1. `agents/<agent_name>.md`
+2. 命中的 `skills/<skill-name>/SKILL.md` 正文
 3. 代码中本次 LLM 调用的任务指令
 
-兼容说明：加载器也会识别 `skills.m`，但优先使用 `skills.md`。
-
-如需新增 Agent，在代码调用 `LlmClient.complete_text(...)` 或 `complete_json(...)` 时传入 `agent_name="your_agent"`，并在这里创建同名目录。
+如需新增 Agent，复制 `_template.md`，并在代码调用 `LlmClient.complete_text(...)` 或 `complete_json(...)` 时传入对应 `agent_name`。

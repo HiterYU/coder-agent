@@ -9,7 +9,7 @@
 - `agent/src/`：核心 Python 模块，包含 `TrainingAgent`、LeetCode 拉取、提示、复盘、画像、存储等能力。
 - `agent/data/`：内置题库与种子用户画像。
 - `agent/prompts/`：LLM 提示词模板。
-- `agent/.runtime/`：运行时生成的题目、会话、画像和复盘数据；不要提交。
+- `agent/projects/`：运行时生成的题目、会话、画像和复盘数据；不要提交。
 
 ## Build, Test, and Development Commands
 
@@ -47,4 +47,4 @@ Pull Request 需说明变更目的、主要文件、验证命令和结果；涉�
 
 ## Security & Configuration Tips
 
-不要提交 `.venv/`、`.runtime/`、API Key 或个人 LeetCode 数据。通过环境变量配置 `OPENAI_API_KEY`、`OPENAI_MODEL`，不要写入源码或数据文件。
+不要提交 `.venv/`、`projects/runtime.json`、`.runtime/`、API Key 或个人 LeetCode 数据。通过环境变量或本地配置设置 `OPENAI_API_KEY`、`OPENAI_MODEL`，不要写入源码或数据文件。

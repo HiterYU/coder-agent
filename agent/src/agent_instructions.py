@@ -8,6 +8,7 @@ import re
 
 
 AGENT_FILE_NAME = "agent.md"
+SKILL_FILE_NAME = "SKILL.md"
 SKILL_FILE_NAMES = ("skills.md", "skills.m")
 SKILL_DIR_NAME = "skills"
 
@@ -28,8 +29,8 @@ class SkillMetadata:
         无。该类用于承载内存中的 Skill 元数据索引。
     """
 
-    # Agent 名称，对应 agents 目录下的子目录。
-    agent_name: str
+    # 允许加载该 Skill 的 Agent 名称；为空时表示不限制。
+    agent_names: tuple[str, ...]
     # Skill 文件路径，命中后才读取全文。
     path: Path
     # Skill 展示名称，用于 UI 提示。
@@ -64,22 +65,25 @@ class AgentInstructionLoader:
     """Agent 指令文件加载器。
 
     参数:
-        agents_dir: 存放不同 Agent 指令目录的根路径。
+        agents_dir: 存放不同 Agent 指令文件的根路径。
+        skills_dir: 可选 Skill 根目录；为空时使用 agents_dir 同级的 skills 目录。
 
     返回值:
         无。实例化后可通过 build_system_prompt 拼接系统提示词。
     """
 
-    def __init__(self, agents_dir: str | Path):
+    def __init__(self, agents_dir: str | Path, skills_dir: str | Path | None = None):
         """初始化 Agent 指令文件加载器。
 
         参数:
-            agents_dir: 存放不同 Agent 指令目录的根路径。
+            agents_dir: 存放不同 Agent 指令文件的根路径。
+            skills_dir: 可选 Skill 根目录；默认读取 agents_dir 同级的 skills 目录。
 
         返回值:
             无。
         """
         self.agents_dir = Path(agents_dir)
+        self.skills_dir = Path(skills_dir) if skills_dir is not None else self.agents_dir.parent / "skills"
         # 启动时只读取各 Skill Markdown 的 YAML front matter，正文按需加载。
         self.skill_index = self._load_skill_index()
 
@@ -89,7 +93,7 @@ class AgentInstructionLoader:
         """按固定顺序拼接 Agent 指令、命中的技能约束和本次任务指令。
 
         参数:
-            agent_name: Agent 名称，对应 agents_dir 下的子目录名。
+            agent_name: Agent 名称，对应 agents_dir 下的 Claude-style Markdown 文件。
             task_system: 本次 LLM 调用的系统提示词。
             user_text: 用户问题或用户上下文，用于 Skill 相似判断。
 
@@ -99,15 +103,15 @@ class AgentInstructionLoader:
         if not agent_name:
             return PromptBuildResult(system_prompt=task_system, used_skills=[])
 
-        agent_dir = self.agents_dir / agent_name
-        agent_text = self._read_optional_file(agent_dir / AGENT_FILE_NAME)
+        agent_path = self._find_agent_file(agent_name)
+        agent_text = self._read_markdown_body(agent_path) if agent_path else ""
         matched_skills = self._match_skills(agent_name, user_text)
         parts: list[str] = []
         used_skills: list[str] = []
 
         if agent_text:
             parts.append(
-                "以下内容来自 agent.md。必须先读取并遵循该 Agent 的角色、边界和工作方式。\n"
+                f"以下内容来自 {agent_path.name}。必须先读取并遵循该 Agent 的角色、边界和工作方式。\n"
                 f"{agent_text}"
             )
 
@@ -133,6 +137,40 @@ class AgentInstructionLoader:
 
     def _load_skill_index(self) -> dict[str, list[SkillMetadata]]:
         skill_index: dict[str, list[SkillMetadata]] = {}
+
+        for skill in self._load_claude_style_skills():
+            agent_names = skill.agent_names or self._agent_names_from_files()
+            for agent_name in agent_names:
+                skill_index.setdefault(agent_name, []).append(skill)
+
+        for agent_name, skills in self._load_legacy_agent_skills().items():
+            skill_index.setdefault(agent_name, []).extend(skills)
+
+        return skill_index
+
+    def _load_claude_style_skills(self) -> list[SkillMetadata]:
+        if not self.skills_dir.exists() or not self.skills_dir.is_dir():
+            return []
+
+        skill_files = []
+        for path in sorted(self.skills_dir.iterdir()):
+            if path.name.startswith("_"):
+                continue
+            if path.is_dir():
+                skill_file = path / SKILL_FILE_NAME
+                if skill_file.exists() and skill_file.is_file():
+                    skill_files.append(skill_file)
+            elif path.suffix == ".md":
+                skill_files.append(path)
+
+        return [
+            skill
+            for skill in (self._build_skill_metadata(path) for path in skill_files)
+            if skill is not None
+        ]
+
+    def _load_legacy_agent_skills(self) -> dict[str, list[SkillMetadata]]:
+        skill_index: dict[str, list[SkillMetadata]] = {}
         if not self.agents_dir.exists():
             return skill_index
 
@@ -140,13 +178,13 @@ class AgentInstructionLoader:
             if not agent_dir.is_dir() or agent_dir.name.startswith("_"):
                 continue
             skills = [
-                self._build_skill_metadata(agent_dir.name, path)
-                for path in self._find_skill_files(agent_dir)
+                self._build_skill_metadata(path, agent_name=agent_dir.name)
+                for path in self._find_legacy_skill_files(agent_dir)
             ]
             skill_index[agent_dir.name] = [skill for skill in skills if skill is not None]
         return skill_index
 
-    def _find_skill_files(self, agent_dir: Path) -> list[Path]:
+    def _find_legacy_skill_files(self, agent_dir: Path) -> list[Path]:
         skill_files = [agent_dir / file_name for file_name in SKILL_FILE_NAMES]
         nested_skill_dir = agent_dir / SKILL_DIR_NAME
         if nested_skill_dir.exists() and nested_skill_dir.is_dir():
@@ -154,18 +192,23 @@ class AgentInstructionLoader:
             skill_files.extend(sorted(nested_skill_dir.glob("*.m")))
         return [path for path in skill_files if path.exists() and path.is_file()]
 
-    def _build_skill_metadata(self, agent_name: str, path: Path) -> SkillMetadata | None:
+    def _build_skill_metadata(
+        self, path: Path, agent_name: str | None = None
+    ) -> SkillMetadata | None:
         raw_metadata = self._read_front_matter(path)
         name = _read_string(raw_metadata, "name") or path.stem
         description = _read_string(raw_metadata, "description") or ""
         keywords = tuple(_read_string_list(raw_metadata, "keywords"))
+        agent_names = tuple(_read_string_list(raw_metadata, "agents"))
         threshold = _read_float(raw_metadata, "threshold") or 1.0
 
+        if agent_name and agent_name not in agent_names:
+            agent_names = (*agent_names, agent_name)
         if not description and not keywords:
-            keywords = (agent_name, name)
+            keywords = tuple(item for item in (*agent_names, name) if item)
 
         return SkillMetadata(
-            agent_name=agent_name,
+            agent_names=agent_names,
             path=path,
             name=name,
             description=description,
@@ -203,6 +246,27 @@ class AgentInstructionLoader:
         scored_skills.sort(key=lambda item: item[0], reverse=True)
         return [skill for _, skill in scored_skills]
 
+    def _agent_names_from_files(self) -> tuple[str, ...]:
+        if not self.agents_dir.exists() or not self.agents_dir.is_dir():
+            return ()
+        agent_names = []
+        for path in sorted(self.agents_dir.glob("*.md")):
+            if path.name.startswith("_"):
+                continue
+            raw_metadata = self._read_front_matter(path)
+            agent_names.append(_read_string(raw_metadata, "name") or path.stem)
+        return tuple(agent_names)
+
+    def _find_agent_file(self, agent_name: str) -> Path | None:
+        claude_style_path = self.agents_dir / f"{agent_name}.md"
+        if claude_style_path.exists() and claude_style_path.is_file():
+            return claude_style_path
+
+        legacy_path = self.agents_dir / agent_name / AGENT_FILE_NAME
+        if legacy_path.exists() and legacy_path.is_file():
+            return legacy_path
+        return None
+
     def _score_skill(
         self, skill: SkillMetadata, normalized_user_text: str, user_tokens: set[str]
     ) -> float:
@@ -219,10 +283,12 @@ class AgentInstructionLoader:
         return score
 
     def _read_skill_body(self, path: Path) -> str:
+        return self._read_markdown_body(path)
+
+    def _read_markdown_body(self, path: Path) -> str:
         text = self._read_optional_file(path)
         if not text.startswith("---"):
             return text
-
         parts = text.split("---", 2)
         if len(parts) < 3:
             return text

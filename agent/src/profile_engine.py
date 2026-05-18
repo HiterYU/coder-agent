@@ -22,23 +22,30 @@ class ProfileEngine:
 
     参数:
         runtime_dir: 运行时目录。
+        legacy_runtime_dir: 可选旧版运行时目录。
         seed_profile_path: 种子画像文件路径。
 
     返回值:
         无。实例化后可读取、保存和更新用户画像。
     """
 
-    def __init__(self, runtime_dir: str | Path, seed_profile_path: str | Path):
+    def __init__(
+        self,
+        runtime_dir: str | Path,
+        seed_profile_path: str | Path,
+        legacy_runtime_dir: str | Path | None = None,
+    ):
         """初始化用户画像管理器。
 
         参数:
             runtime_dir: 运行时目录。
+            legacy_runtime_dir: 可选旧版运行时目录。
             seed_profile_path: 种子画像文件路径。
 
         返回值:
             无。
         """
-        self.storage = RuntimeJsonStorage(runtime_dir)
+        self.storage = RuntimeJsonStorage(runtime_dir, legacy_base_dir=legacy_runtime_dir)
         self.seed_profile_path = Path(seed_profile_path)
 
     def get_profile(self, user_id: str) -> UserProfile:

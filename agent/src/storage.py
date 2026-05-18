@@ -72,17 +72,22 @@ class RuntimeJsonStorage(JsonStorage):
         无。实例化后按原相对路径接口读写，但底层集中保存到 runtime.json。
     """
 
-    def __init__(self, base_dir: str | Path):
+    def __init__(self, base_dir: str | Path, legacy_base_dir: str | Path | None = None):
         """初始化运行时单文件 JSON 存储。
 
         参数:
             base_dir: 运行时目录。
+            legacy_base_dir: 可选旧版运行时目录，用于从 `.runtime` 迁移到 `projects`。
 
         返回值:
             无。
         """
         super().__init__(base_dir)
         self.runtime_path = self.base_dir / "runtime.json"
+        self.legacy_base_dir = Path(legacy_base_dir) if legacy_base_dir else None
+        self.legacy_runtime_path = (
+            self.legacy_base_dir / "runtime.json" if self.legacy_base_dir else None
+        )
 
     def load_json(self, relative_path: str, default: Any) -> Any:
         """从 runtime.json 的分区中读取数据。
@@ -100,7 +105,10 @@ class RuntimeJsonStorage(JsonStorage):
             if item_id in runtime_data.get(section, {}):
                 return runtime_data[section][item_id]
 
-        # 兼容旧版本的小文件存储，只读不再写。
+        legacy_data = self._load_legacy_json(relative_path, default=None)
+        if legacy_data is not None:
+            return legacy_data
+
         return super().load_json(relative_path, default)
 
     def save_json(self, relative_path: str, data: Any) -> None:
@@ -118,7 +126,7 @@ class RuntimeJsonStorage(JsonStorage):
             super().save_json(relative_path, data)
             return
 
-        runtime_data = self._load_runtime_data()
+        runtime_data = self._load_runtime_data(include_legacy=True)
         runtime_data.setdefault(section, {})
         runtime_data[section][item_id] = data
         self._save_runtime_data(runtime_data)
@@ -132,7 +140,7 @@ class RuntimeJsonStorage(JsonStorage):
         返回值:
             dict[str, Any]: 该分区下按 id 存储的数据。
         """
-        runtime_data = self._load_runtime_data()
+        runtime_data = self._load_runtime_data(include_legacy=True)
         values = runtime_data.get(section, {})
         return values if isinstance(values, dict) else {}
 
@@ -145,11 +153,27 @@ class RuntimeJsonStorage(JsonStorage):
         返回值:
             无。
         """
-        runtime_data = self._load_runtime_data()
+        runtime_data = self._load_runtime_data(include_legacy=True)
         changed = False
 
+        changed = self._compact_small_files(self.base_dir, runtime_data) or changed
+        if self.legacy_base_dir:
+            changed = self._compact_small_files(self.legacy_base_dir, runtime_data) or changed
+
+        if changed:
+            self._save_runtime_data(runtime_data)
+
+    def _split_relative_path(self, relative_path: str) -> tuple[str | None, str | None]:
+        path = Path(relative_path)
+        parts = path.parts
+        if len(parts) != 2 or path.suffix != ".json":
+            return None, None
+        return parts[0], path.stem
+
+    def _compact_small_files(self, base_dir: Path, runtime_data: dict[str, Any]) -> bool:
+        changed = False
         for section in ("problems", "sessions", "profiles", "reviews"):
-            section_dir = self.base_dir / section
+            section_dir = base_dir / section
             if not section_dir.exists() or not section_dir.is_dir():
                 continue
 
@@ -167,27 +191,53 @@ class RuntimeJsonStorage(JsonStorage):
 
             shutil.rmtree(section_dir)
             changed = True
+        return changed
 
-        if changed:
-            self._save_runtime_data(runtime_data)
+    def _load_runtime_data(self, include_legacy: bool = False) -> dict[str, Any]:
+        data = self._load_runtime_file(self.runtime_path)
+        if include_legacy and self.legacy_runtime_path and self.legacy_runtime_path.exists():
+            legacy_data = self._load_runtime_file(self.legacy_runtime_path)
+            data = self._merge_runtime_data(legacy_data, data)
+            self._save_runtime_data(data)
+        return data
 
-    def _split_relative_path(self, relative_path: str) -> tuple[str | None, str | None]:
-        path = Path(relative_path)
-        parts = path.parts
-        if len(parts) != 2 or path.suffix != ".json":
-            return None, None
-        return parts[0], path.stem
-
-    def _load_runtime_data(self) -> dict[str, Any]:
-        if not self.runtime_path.exists():
+    def _load_runtime_file(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
             return self._empty_runtime_data()
-        with self.runtime_path.open("r", encoding="utf-8") as file:
+        with path.open("r", encoding="utf-8") as file:
             raw = json.load(file)
         if not isinstance(raw, dict):
             return self._empty_runtime_data()
         for section in ("problems", "sessions", "profiles", "reviews"):
             raw.setdefault(section, {})
         return raw
+
+    def _merge_runtime_data(
+        self, legacy_data: dict[str, Any], runtime_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        merged = self._empty_runtime_data()
+        for section in ("problems", "sessions", "profiles", "reviews"):
+            merged[section].update(legacy_data.get(section, {}))
+            merged[section].update(runtime_data.get(section, {}))
+        for key, value in {**legacy_data, **runtime_data}.items():
+            if key not in merged:
+                merged[key] = value
+        return merged
+
+    def _load_legacy_json(self, relative_path: str, default: Any) -> Any:
+        if not self.legacy_base_dir:
+            return default
+        section, item_id = self._split_relative_path(relative_path)
+        if section and item_id and self.legacy_runtime_path and self.legacy_runtime_path.exists():
+            runtime_data = self._load_runtime_file(self.legacy_runtime_path)
+            if item_id in runtime_data.get(section, {}):
+                return runtime_data[section][item_id]
+
+        path = self.legacy_base_dir / relative_path
+        if not path.exists():
+            return default
+        with path.open("r", encoding="utf-8") as file:
+            return json.load(file)
 
     def _save_runtime_data(self, data: dict[str, Any]) -> None:
         with self.runtime_path.open("w", encoding="utf-8") as file:

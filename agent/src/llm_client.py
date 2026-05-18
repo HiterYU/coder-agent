@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_instructions import AgentInstructionLoader
-from .config import load_openai_config
+from .config import load_openai_config, resolve_config_path
 from .tools import ToolRegistry, build_default_tool_registry
 
 
@@ -15,7 +15,7 @@ class LlmClient:
     """LLM 客户端封装。
 
     参数:
-        config_path: 可选配置文件路径；未传入时读取项目根目录 config.toml。
+        config_path: 可选配置文件路径；未传入时读取项目根目录 settings.json，兼容 config.toml。
         agents_dir: 可选 Agent 指令目录；未传入时读取项目根目录 agents。
         model: 可选模型名称；未传入时读取配置文件。
         base_url: 可选自定义 API 地址；未传入时读取配置文件。
@@ -36,7 +36,7 @@ class LlmClient:
         """初始化 OpenAI-compatible 客户端。
 
         参数:
-            config_path: 可选配置文件路径；默认使用项目根目录 config.toml。
+            config_path: 可选配置文件路径；默认使用项目根目录 settings.json，兼容 config.toml。
             agents_dir: 可选 Agent 指令目录；默认使用项目根目录 agents。
             model: 可选模型名称；默认使用配置文件中的 openai.model。
             base_url: 可选自定义 API 地址；默认使用配置文件中的 openai.base_url。
@@ -47,12 +47,14 @@ class LlmClient:
         """
         project_dir = Path(__file__).resolve().parents[1]
         if config_path is None:
-            config_path = project_dir / "config.toml"
+            config_path = resolve_config_path(project_dir)
         if agents_dir is None:
             agents_dir = project_dir / "agents"
         self.config_path = Path(config_path)
         config = load_openai_config(self.config_path)
-        self.instruction_loader = AgentInstructionLoader(agents_dir)
+        self.instruction_loader = AgentInstructionLoader(
+            agents_dir, skills_dir=project_dir / "skills"
+        )
         self.tool_registry: ToolRegistry = build_default_tool_registry(project_dir)
         # 最近一次 LLM 调用实际加载的 Skill 名称，用于 UI 展示。
         self.last_used_skills: list[str] = []
@@ -63,7 +65,7 @@ class LlmClient:
         # 最近一次 LLM 调用失败原因。
         self.last_error = ""
 
-        # 模型名称，来自 config.toml，允许测试或调用方通过参数覆盖。
+        # 模型名称，来自 settings.json 或 config.toml，允许测试或调用方通过参数覆盖。
         self.model = model or config.model
         # API Key，未配置时客户端不可用并自动走本地兜底逻辑。
         self.api_key = api_key or config.api_key
@@ -75,7 +77,7 @@ class LlmClient:
             self.status_message = f"未启用：缺少配置文件 {self.config_path.name}。"
             return
         if not self.api_key:
-            self.status_message = "未启用：config.toml 中没有 openai.api_key。"
+            self.status_message = f"未启用：{self.config_path.name} 中没有 openai.api_key。"
             return
 
         try:
@@ -108,7 +110,7 @@ class LlmClient:
         参数:
             system: 系统提示词。
             user: 用户提示词。
-            agent_name: 可选 Agent 名称；传入时会先加载对应 agent.md 和 skills.md。
+            agent_name: 可选 Agent 名称；传入时会加载对应 Agent 和命中的 Skill。
 
         返回值:
             str | None: 成功时返回模型文本，失败时返回 None。
@@ -202,7 +204,7 @@ class LlmClient:
         参数:
             system: 系统提示词。
             user: 用户提示词。
-            agent_name: 可选 Agent 名称；传入时会先加载对应 agent.md 和 skills.md。
+            agent_name: 可选 Agent 名称；传入时会加载对应 Agent 和命中的 Skill。
 
         返回值:
             dict[str, Any] | None: 成功解析时返回 JSON 字典，失败时返回 None。

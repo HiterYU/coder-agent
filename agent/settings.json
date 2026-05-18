@@ -1,0 +1,15 @@
+{
+  "openai": {
+    "api_key": "",
+    "model": "gpt-5.5",
+    "base_url": ""
+  },
+  "leetcode": {
+    "csrftoken": "",
+    "prefer_cn": true,
+    "retry_count": 5,
+    "timeout": 15,
+    "category_slug": "all-code-essentials",
+    "page_size": 50
+  }
+}

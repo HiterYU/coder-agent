@@ -36,14 +36,21 @@ class TrainingAgent:
         """
         self.project_dir = Path(project_dir)
         self.data_dir = self.project_dir / "data"
-        self.runtime_dir = self.project_dir / ".runtime"
-        RuntimeJsonStorage(self.runtime_dir).compact_legacy_files()
+        self.runtime_dir = self.project_dir / "projects"
+        self.legacy_runtime_dir = self.project_dir / ".runtime"
+        RuntimeJsonStorage(
+            self.runtime_dir, legacy_base_dir=self.legacy_runtime_dir
+        ).compact_legacy_files()
         self.llm = LlmClient()
         self.leetcode_client = LeetCodeClient()
-        self.problem_store = ProblemStore(self.data_dir, self.runtime_dir)
-        self.session_manager = SessionManager(self.runtime_dir)
+        self.problem_store = ProblemStore(
+            self.data_dir, self.runtime_dir, legacy_runtime_dir=self.legacy_runtime_dir
+        )
+        self.session_manager = SessionManager(self.runtime_dir, self.legacy_runtime_dir)
         self.profile_engine = ProfileEngine(
-            self.runtime_dir, self.data_dir / "seed_user_profile.json"
+            self.runtime_dir,
+            self.data_dir / "seed_user_profile.json",
+            legacy_runtime_dir=self.legacy_runtime_dir,
         )
         self.hint_engine = HintEngine(self.llm)
         self.review_engine = ReviewEngine(self.llm)
@@ -133,7 +140,9 @@ class TrainingAgent:
             offset += page_size
 
         entries = [self._leetcode_directory_entry(item) for item in selected_items]
-        storage = RuntimeJsonStorage(self.runtime_dir)
+        storage = RuntimeJsonStorage(
+            self.runtime_dir, legacy_base_dir=self.legacy_runtime_dir
+        )
         storage.save_json(
             "leetcode_directories/latest.json",
             {
@@ -197,7 +206,9 @@ class TrainingAgent:
         返回值:
             dict: 最近一次目录摘要缓存；不存在时返回空目录。
         """
-        storage = RuntimeJsonStorage(self.runtime_dir)
+        storage = RuntimeJsonStorage(
+            self.runtime_dir, legacy_base_dir=self.legacy_runtime_dir
+        )
         return storage.load_json(
             "leetcode_directories/latest.json",
             {

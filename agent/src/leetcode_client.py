@@ -12,12 +12,12 @@ import requests
 from bs4 import BeautifulSoup
 
 from .code_templates import extract_python_function_metadata, select_python_starter_code
-from .config import load_leetcode_config
+from .config import load_leetcode_config, resolve_config_path
 from .models import CommonMistake, Example, Problem
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG_PATH = PROJECT_DIR / "config.toml"
+DEFAULT_CONFIG_PATH = resolve_config_path(PROJECT_DIR)
 LEETCODE_GRAPHQL_URL = "https://leetcode.com/graphql"
 LEETCODE_CN_GRAPHQL_URL = "https://leetcode.cn/graphql/"
 DEFAULT_USER_AGENT = (
@@ -119,8 +119,8 @@ class LeetCodeClient:
     """LeetCode GraphQL 客户端。
 
     参数:
-        csrftoken: LeetCode 中国站 csrftoken；为空时读取 `config.toml`。
-        prefer_cn: 是否优先使用 LeetCode 中国站；为空时读取 `config.toml`。
+        csrftoken: LeetCode 中国站 csrftoken；为空时读取项目配置。
+        prefer_cn: 是否优先使用 LeetCode 中国站；为空时读取项目配置。
         retry_count: 请求失败时的重试次数。
         timeout: HTTP 请求超时时间，单位秒。
 
@@ -145,7 +145,7 @@ class LeetCodeClient:
             prefer_cn: 是否优先请求中国站；为空时读取配置文件。
             retry_count: 请求失败时的重试次数。
             timeout: HTTP 请求超时时间，单位秒。
-            config_path: 可选项目配置文件路径；默认读取 `agent/config.toml`。
+            config_path: 可选项目配置文件路径；默认读取 `agent/settings.json`，兼容 `agent/config.toml`。
             category_slug: 中国站题库列表分类 slug。
             page_size: 中国站题库列表分页大小。
 

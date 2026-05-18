@@ -240,7 +240,11 @@ def _run_python_examples(arguments: dict[str, Any], context: ToolContext) -> dic
 
 
 def _problem_store(context: ToolContext) -> ProblemStore:
-    return ProblemStore(context.data_dir, context.runtime_dir)
+    return ProblemStore(
+        context.data_dir,
+        context.runtime_dir,
+        legacy_runtime_dir=context.legacy_runtime_dir,
+    )
 
 
 def _problem_to_tool_dict(problem: Problem) -> dict[str, Any]:

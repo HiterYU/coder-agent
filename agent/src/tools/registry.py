@@ -46,7 +46,19 @@ class ToolContext:
             无。
 
         返回值:
-            Path: `.runtime/` 目录路径。
+            Path: `projects/` 目录路径。
+        """
+        return self.project_dir / "projects"
+
+    @property
+    def legacy_runtime_dir(self) -> Path:
+        """返回旧版运行时数据目录。
+
+        参数:
+            无。
+
+        返回值:
+            Path: `.runtime/` 目录路径，用于迁移旧数据。
         """
         return self.project_dir / ".runtime"
 

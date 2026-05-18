@@ -1,6 +1,8 @@
 ---
-name: leveled_hint
+name: leetcode_leveled_hint
 description: 在 Hint Agent 需要基于题目、会话、用户最近输入、目标提示等级和历史错误画像生成 LeetCode 分级提示时加载；用于控制泄题程度、提示粒度、JSON 输出和画像提醒边界。
+agents:
+  - hint
 keywords:
   - 提示
   - hint
@@ -14,7 +16,7 @@ keywords:
 threshold: 1.0
 ---
 
-# Leveled Hint Skill
+# LeetCode Leveled Hint Skill
 
 ## 工作流程
 

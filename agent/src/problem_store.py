@@ -17,18 +17,28 @@ class ProblemStore:
         无。实例化后可查询或更新题目。
     """
 
-    def __init__(self, data_dir: str | Path, runtime_dir: str | Path | None = None):
+    def __init__(
+        self,
+        data_dir: str | Path,
+        runtime_dir: str | Path | None = None,
+        legacy_runtime_dir: str | Path | None = None,
+    ):
         """初始化题目仓库。
 
         参数:
             data_dir: 内置题库目录。
             runtime_dir: 可选运行时目录。
+            legacy_runtime_dir: 可选旧版运行时目录。
 
         返回值:
             无。
         """
         self.storage = JsonStorage(data_dir)
-        self.runtime_storage = RuntimeJsonStorage(runtime_dir) if runtime_dir else None
+        self.runtime_storage = (
+            RuntimeJsonStorage(runtime_dir, legacy_base_dir=legacy_runtime_dir)
+            if runtime_dir
+            else None
+        )
         raw_problems = self.storage.load_json("problems.json", [])
         self.problems = [Problem.model_validate(item) for item in raw_problems]
         self.problem_by_id = {problem.id: problem for problem in self.problems}

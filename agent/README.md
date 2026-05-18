@@ -37,39 +37,33 @@ python3 -m pip install -r requirements.txt
 
 没有 API key 也能运行，系统会使用本地规则兜底。
 
-复制示例配置后，可以在本地 `config.toml` 里配置 LLM 和 LeetCode 抓题：
+项目默认使用 Claude-style 的 `settings.json` 配置 LLM 和 LeetCode 抓题：
 
-```bash
-cp config.example.toml config.toml
-```
-
-```toml
-[openai]
-api_key = "your_api_key"
-model = "gpt-4.1-mini"
-base_url = ""
-
-[leetcode]
-csrftoken = ""
-prefer_cn = true
-retry_count = 5
-timeout = 15
-category_slug = "all-code-essentials"
-page_size = 50
+```json
+{
+  "openai": {
+    "api_key": "your_api_key",
+    "model": "gpt-5.5",
+    "base_url": ""
+  },
+  "leetcode": {
+    "csrftoken": "",
+    "prefer_cn": true,
+    "retry_count": 5,
+    "timeout": 15,
+    "category_slug": "all-code-essentials",
+    "page_size": 50
+  }
+}
 ```
 
 如果使用 OpenAI-compatible 代理或第三方兼容服务，填写自定义地址：
 
-```toml
-[openai]
-api_key = "your_api_key"
-model = "your_model"
-base_url = "https://your-proxy.example.com/v1"
-```
+把 `openai.base_url` 改成自定义地址即可。
 
-`config.toml` 包含本地密钥，已被 git 忽略，不要提交。
+旧版 `config.toml` 仍兼容；当 `settings.json` 中某个字段为空时，会用 `config.toml` 中的同名字段补齐。不要提交 API Key，可把个人密钥放在本地忽略文件或环境变量中。
 
-LLM 只会在 `agent/config.toml` 存在且 `[openai].api_key` 非空时启用。LeetCode 抓题会读取 `[leetcode]`，其中 `csrftoken` 可留空；需要中国站登录态时再填写。Streamlit 会缓存 `TrainingAgent`，所以修改 `config.toml` 后需要点击侧边栏“重新加载 LLM 配置”，或重启应用。
+LLM 只会在 `openai.api_key` 非空时启用。LeetCode 抓题会读取 `leetcode` 配置，其中 `csrftoken` 可留空；需要中国站登录态时再填写。Streamlit 会缓存 `TrainingAgent`，所以修改配置后需要点击侧边栏“重新加载 LLM 配置”，或重启应用。
 
 可以用下面命令检查当前是否启用：
 
@@ -88,13 +82,16 @@ user_id: demo
 ```text
 agent/
   app.py
+  settings.json
   agents/
-    hint/
-      agent.md
-      skills.md
-    review/
-      agent.md
-      skills.md
+    hint.md
+    review.md
+    _template.md
+  skills/
+    leetcode-leveled-hint/
+      SKILL.md
+    leetcode-code-review/
+      SKILL.md
   data/
     problems.json
     seed_user_profile.json
@@ -110,7 +107,7 @@ agent/
     session_manager.py
     storage.py
     models.py
-  .runtime/
+  projects/
     runtime.json
 ```
 
@@ -122,28 +119,30 @@ Streamlit UI
 TrainingAgent
   ├── LeetCodeClient
   ├── ProblemStore
-  ├── HintEngine -> LlmClient -> agents/hint/agent.md + agents/hint/skills.md
-  ├── ReviewEngine -> LlmClient -> agents/review/agent.md + agents/review/skills.md
+  ├── HintEngine -> LlmClient -> agents/hint.md + skills/leetcode-leveled-hint/SKILL.md
+  ├── ReviewEngine -> LlmClient -> agents/review.md + skills/leetcode-code-review/SKILL.md
   ├── ToolRegistry -> src/tools/
   ├── PythonSubmissionRunner
   ├── ProfileEngine
   ↓
-JSON Runtime Storage -> .runtime/runtime.json
+JSON Runtime Storage -> projects/runtime.json
 ```
 
 ## Agent 指令与 Skills
 
-LLM 调用会按 Agent 名称加载 `agents/<agent_name>/agent.md` 和命中的 `agents/<agent_name>/skills.md`。
+LLM 调用会按 Agent 名称加载 `agents/<agent_name>.md` 和命中的 `skills/<skill-name>/SKILL.md`。
 
 当前内置：
 
-- `agents/hint/`：分级提示 Agent。
-- `agents/review/`：代码复盘 Agent。
-- `agents/_template/`：新增 Agent 时复制使用的模板。
+- `agents/hint.md`：分级提示 Agent。
+- `agents/review.md`：代码复盘 Agent。
+- `agents/_template.md`：新增 Agent 时复制使用的模板。
+- `skills/leetcode-leveled-hint/SKILL.md`：提示强度控制 Skill。
+- `skills/leetcode-code-review/SKILL.md`：代码复盘 Skill。
 
-启动时只读取 `skills.md` 顶部 YAML 元数据并保存在内存中；每次用户问题进入对应 Agent 时，系统会用用户上下文和元数据做相似判断，命中后才加载 skill 全文。UI 只显示“已使用 skill: ...”，不会打印全文。
+启动时只读取 `SKILL.md` 顶部 YAML 元数据并保存在内存中；每次用户问题进入对应 Agent 时，系统会用用户上下文和元数据做相似判断，命中后才加载 Skill 全文。UI 只显示“已使用 skill: ...”，不会打印全文。
 
-加载顺序固定为 `agent.md`、命中的 `skills.md` 全文、代码中的本次任务指令。新增 Agent 时，在 `agents/` 下创建同名目录，并在调用 `LlmClient.complete_text(...)` 或 `complete_json(...)` 时传入 `agent_name="目录名"`。
+加载顺序固定为 `agents/<agent_name>.md`、命中的 `skills/<skill-name>/SKILL.md` 正文、代码中的本次任务指令。新增 Agent 时，在 `agents/` 下创建同名 Markdown 文件，并在调用 `LlmClient.complete_text(...)` 或 `complete_json(...)` 时传入 `agent_name="文件名"`。
 
 ## LLM 工具调用
 
@@ -156,7 +155,7 @@ LLM 调用会按 Agent 名称加载 `agents/<agent_name>/agent.md` 和命中的 
 - `fetch_leetcode_problem`：从 LeetCode GraphQL 拉取题目并写入运行时缓存。
 - `run_python_examples`：运行 Python 样例执行器；只对 Review Agent 开放，结果不是 LeetCode 在线判题。
 
-工具使用边界写在 `agents/hint/agent.md`、`agents/review/agent.md` 和对应 `skills.md` 中。UI 会在 LLM 参与生成后展示最近一次实际调用的工具名称。
+工具使用边界写在 `agents/hint.md`、`agents/review.md` 和对应 `SKILL.md` 中。UI 会在 LLM 参与生成后展示最近一次实际调用的工具名称。
 
 ## Python 样例执行
 
@@ -177,7 +176,7 @@ LLM 调用会按 Agent 名称加载 `agents/<agent_name>/agent.md` 和命中的 
 运行时数据统一写入一个文件：
 
 ```text
-.runtime/runtime.json
+projects/runtime.json
 ```
 
 文件按分区和 id 组织：
@@ -199,7 +198,7 @@ LLM 调用会按 Agent 名称加载 `agents/<agent_name>/agent.md` 和命中的 
 }
 ```
 
-启动时会自动把旧版 `.runtime/problems/`、`.runtime/sessions/`、`.runtime/profiles/`、`.runtime/reviews/` 下的小 JSON 文件合并进 `runtime.json`，然后删除旧目录。之后不会再为每条会话或复盘创建单独 JSON 文件。
+启动时会自动把旧版 `.runtime/runtime.json` 以及 `.runtime/problems/`、`.runtime/sessions/`、`.runtime/profiles/`、`.runtime/reviews/` 下的小 JSON 文件合并进 `projects/runtime.json`。之后不会再为每条会话或复盘创建单独 JSON 文件。
 
 ## 当前限制
 
@@ -233,7 +232,7 @@ app.py
 
 ### 1. 用户选择或导入 LeetCode 题目
 
-默认流程是在侧边栏从本地题库下拉选择题目，题目标题、难度和标签由 `ProblemStore.list_problems()` 从 `data/problems.json` 与 `.runtime/runtime.json` 汇总得到，用户不需要手动拼 slug。
+默认流程是在侧边栏从本地题库下拉选择题目，题目标题、难度和标签由 `ProblemStore.list_problems()` 从 `data/problems.json` 与 `projects/runtime.json` 汇总得到，用户不需要手动拼 slug。
 
 如果本地题库里没有目标题，可以在“从 LeetCode URL 或 slug 导入”里输入题目 slug 或 URL：
 
@@ -251,7 +250,7 @@ app.py
       -> LeetCode GraphQL
       -> 转成 Problem
     -> ProblemStore.upsert_problem()
-      -> 缓存到 .runtime/runtime.json 的 problems 分区
+      -> 缓存到 projects/runtime.json 的 problems 分区
 ```
 
 ### 2. 用户开始一道题
@@ -261,7 +260,7 @@ app.py
     -> TrainingAgent.create_session()
     -> ProfileEngine.get_profile()
     -> SessionManager.create_session()
-    -> 保存到 .runtime/runtime.json 的 sessions 分区
+    -> 保存到 projects/runtime.json 的 sessions 分区
 ```
 
 这里会创建一个 `Session`，记录用户 ID、题目 ID、语言、开始时间、当前状态和后续消息。
@@ -309,7 +308,7 @@ app.py
     -> ProfileEngine.update_after_review()
       -> 更新不同题型失误画像
     -> SessionManager.mark_reviewed()
-    -> 保存 review 到 .runtime/runtime.json 的 reviews 分区
+    -> 保存 review 到 projects/runtime.json 的 reviews 分区
 ```
 
 `ReviewEngine` 返回 `ReviewResult`，包括：
@@ -392,7 +391,7 @@ Problem
 
 ```text
 data/problems.json
-.runtime/runtime.json -> problems
+projects/runtime.json -> problems
 ```
 
 实时抓到题目后调用：
@@ -418,7 +417,7 @@ tags()
 保存位置：
 
 ```text
-.runtime/runtime.json -> sessions
+projects/runtime.json -> sessions
 ```
 
 ### HintEngine
@@ -466,7 +465,7 @@ Python 提交会先运行题目样例；非 Python 提交只做 LLM 或规则级
 保存位置：
 
 ```text
-.runtime/runtime.json -> profiles
+projects/runtime.json -> profiles
 ```
 
 它会根据提示使用情况和复盘结果更新：
@@ -494,7 +493,7 @@ Python 提交会先运行题目样例；非 Python 提交只做 LLM 或规则级
 `HintEngine` 和 `ReviewEngine` 都是同一套策略：
 
 ```text
-config.toml 有 openai.api_key -> 调 LLM
+settings.json 有 openai.api_key -> 调 LLM
 没有 key 或调用失败 -> 本地规则兜底
 ```
 
@@ -504,10 +503,10 @@ config.toml 有 openai.api_key -> 调 LLM
 
 ## 本地数据如何保存
 
-运行时数据都在 `.runtime/runtime.json` 中：
+运行时数据都在 `projects/runtime.json` 中：
 
 ```text
-.runtime/
+projects/
   runtime.json
 ```
 
@@ -522,7 +521,7 @@ config.toml 有 openai.api_key -> 调 LLM
 3. 给 `app.py` 增加更完整的运行状态展示。
 4. 给 `profile_engine.py` 增加更细的题型画像统计。
 5. 增加隐藏用例或自定义用例执行能力。
-6. 数据量变大后再把 `.runtime/runtime.json` 换成 SQLite。
+6. 数据量变大后再把 `projects/runtime.json` 换成 SQLite。
 7. 流程稳定后再考虑 LangGraph。
 
 不建议现在就做：

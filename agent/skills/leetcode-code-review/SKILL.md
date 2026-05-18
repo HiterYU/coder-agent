@@ -1,6 +1,8 @@
 ---
-name: code_review
+name: leetcode_code_review
 description: 在 Review Agent 需要基于题目、会话、用户画像、提交代码和样例运行结果复盘 LeetCode 提交时加载；用于约束正确性判断、复杂度分析、错误 taxonomy、证据要求、JSON 输出和下一步动作。
+agents:
+  - review
 keywords:
   - 复盘
   - review
@@ -19,7 +21,7 @@ keywords:
 threshold: 1.0
 ---
 
-# Code Review Skill
+# LeetCode Code Review Skill
 
 ## 工作流程
 

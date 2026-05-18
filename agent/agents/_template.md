@@ -1,3 +1,9 @@
+---
+name: your_agent_name
+description: 用一句话说明这个子代理负责什么，以及何时应该调用。
+tools: []
+---
+
 # Agent Role
 
 在这里写该 Agent 的身份、职责范围、输入输出边界和禁止事项。

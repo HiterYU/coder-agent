@@ -11,21 +11,23 @@ class SessionManager:
 
     参数:
         runtime_dir: 运行时目录。
+        legacy_runtime_dir: 可选旧版运行时目录。
 
     返回值:
         无。实例化后可创建、读取和更新会话。
     """
 
-    def __init__(self, runtime_dir: str | Path):
+    def __init__(self, runtime_dir: str | Path, legacy_runtime_dir: str | Path | None = None):
         """初始化训练会话管理器。
 
         参数:
             runtime_dir: 运行时目录。
+            legacy_runtime_dir: 可选旧版运行时目录。
 
         返回值:
             无。
         """
-        self.storage = RuntimeJsonStorage(runtime_dir)
+        self.storage = RuntimeJsonStorage(runtime_dir, legacy_base_dir=legacy_runtime_dir)
 
     def create_session(self, user_id: str, problem_id: str, language: str = "Python") -> Session:
         session = Session(user_id=user_id, problem_id=problem_id, language=language)
