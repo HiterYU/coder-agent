@@ -11,8 +11,8 @@ from .models import Problem, ReviewResult, Session, UserProfile
 from .problem_store import ProblemStore
 from .profile_engine import ProfileEngine
 from .review_engine import ReviewEngine
+from .runtime_repository import SqliteRuntimeRepository
 from .session_manager import SessionManager
-from .storage import RuntimeJsonStorage
 
 
 class TrainingAgent:
@@ -38,9 +38,6 @@ class TrainingAgent:
         self.data_dir = self.project_dir / "data"
         self.runtime_dir = self.project_dir / "projects"
         self.legacy_runtime_dir = self.project_dir / ".runtime"
-        RuntimeJsonStorage(
-            self.runtime_dir, legacy_base_dir=self.legacy_runtime_dir
-        ).compact_legacy_files()
         self.llm = LlmClient()
         self.leetcode_client = LeetCodeClient()
         self.problem_store = ProblemStore(
@@ -140,9 +137,7 @@ class TrainingAgent:
             offset += page_size
 
         entries = [self._leetcode_directory_entry(item) for item in selected_items]
-        storage = RuntimeJsonStorage(
-            self.runtime_dir, legacy_base_dir=self.legacy_runtime_dir
-        )
+        storage = SqliteRuntimeRepository(self.runtime_dir)
         storage.save_json(
             "leetcode_directories/latest.json",
             {
@@ -206,9 +201,7 @@ class TrainingAgent:
         返回值:
             dict: 最近一次目录摘要缓存；不存在时返回空目录。
         """
-        storage = RuntimeJsonStorage(
-            self.runtime_dir, legacy_base_dir=self.legacy_runtime_dir
-        )
+        storage = SqliteRuntimeRepository(self.runtime_dir)
         return storage.load_json(
             "leetcode_directories/latest.json",
             {

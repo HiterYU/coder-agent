@@ -314,7 +314,7 @@ def render_problem_setup(agent: TrainingAgent) -> None:
     st.subheader("LeetCode 抓题")
     st.caption(
         "输入 leetcode.cn / leetcode.com 题目 URL 或 titleSlug。"
-        "抓到后会缓存到 projects/runtime.json，并立即开始这道题。"
+        "抓到后会缓存到 projects/agent.db，并立即开始这道题。"
     )
     st.session_state.leetcode_input = st.text_input(
         "题目 URL 或 titleSlug",
@@ -339,7 +339,7 @@ def render_problem_setup(agent: TrainingAgent) -> None:
     with st.expander("抓目录索引"):
         st.caption(
             "只缓存 LeetCode 中国站题目目录摘要，不抓题面详情。"
-            "选中某一道题并抓详情后，才会写入 projects/runtime.json。"
+            "选中某一道题并抓详情后，才会写入 projects/agent.db。"
         )
         directory_limit = st.number_input(
             "最多索引题数",

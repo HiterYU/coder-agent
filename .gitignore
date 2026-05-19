@@ -23,7 +23,7 @@ env/
 # 项目运行时数据
 .runtime/
 agent/.runtime/
-agent/projects/
+agent/projects/*
 !agent/projects/
 !agent/projects/.gitkeep
 

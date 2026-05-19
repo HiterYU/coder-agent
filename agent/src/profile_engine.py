@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# 文件用途：管理用户长期画像，并根据提示和复盘结果更新能力统计。
+
 from pathlib import Path
 
 from .models import (
@@ -13,7 +15,8 @@ from .models import (
     Weakness,
     utc_now,
 )
-from .storage import JsonStorage, RuntimeJsonStorage
+from .runtime_repository import SqliteRuntimeRepository
+from .storage import JsonStorage
 from .taxonomy import normalize_topic
 
 
@@ -22,7 +25,7 @@ class ProfileEngine:
 
     参数:
         runtime_dir: 运行时目录。
-        legacy_runtime_dir: 可选旧版运行时目录。
+        legacy_runtime_dir: 保留兼容参数；旧 JSON 需通过迁移命令手动导入 SQLite。
         seed_profile_path: 种子画像文件路径。
 
     返回值:
@@ -39,16 +42,24 @@ class ProfileEngine:
 
         参数:
             runtime_dir: 运行时目录。
-            legacy_runtime_dir: 可选旧版运行时目录。
+            legacy_runtime_dir: 保留兼容参数；不再自动读取旧 JSON。
             seed_profile_path: 种子画像文件路径。
 
         返回值:
             无。
         """
-        self.storage = RuntimeJsonStorage(runtime_dir, legacy_base_dir=legacy_runtime_dir)
+        self.storage = SqliteRuntimeRepository(runtime_dir)
         self.seed_profile_path = Path(seed_profile_path)
 
     def get_profile(self, user_id: str) -> UserProfile:
+        """读取或创建用户画像。
+
+        参数:
+            user_id: 用户 ID。
+
+        返回值:
+            UserProfile: 用户长期画像。
+        """
         raw = self.storage.load_json(f"profiles/{user_id}.json", None)
         if raw is not None:
             return UserProfile.model_validate(raw)
@@ -59,9 +70,26 @@ class ProfileEngine:
         return UserProfile(user_id=user_id)
 
     def save_profile(self, profile: UserProfile) -> None:
+        """保存用户画像。
+
+        参数:
+            profile: 用户画像。
+
+        返回值:
+            无。
+        """
         self.storage.save_json(f"profiles/{profile.user_id}.json", profile.model_dump(mode="json"))
 
     def update_after_hint(self, profile: UserProfile, hint_level: int) -> UserProfile:
+        """根据提示使用情况更新画像。
+
+        参数:
+            profile: 用户画像。
+            hint_level: 本次提示等级。
+
+        返回值:
+            UserProfile: 更新后的用户画像。
+        """
         old_total = profile.hint_stats.total_hints
         old_average = profile.hint_stats.average_hint_level
         new_total = old_total + 1
@@ -77,6 +105,17 @@ class ProfileEngine:
     def update_after_review(
         self, profile: UserProfile, session: Session, problem: Problem, review: ReviewResult
     ) -> UserProfile:
+        """根据提交复盘结果更新画像。
+
+        参数:
+            profile: 用户画像。
+            session: 当前训练会话。
+            problem: 当前题目。
+            review: 复盘结果。
+
+        返回值:
+            UserProfile: 更新后的用户画像。
+        """
         if review.is_likely_correct and problem.id not in profile.solved_problem_ids:
             profile.solved_problem_ids.append(problem.id)
 

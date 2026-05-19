@@ -105,10 +105,14 @@ agent/
     profile_engine.py
     problem_store.py
     session_manager.py
+    runtime_repository.py
+    runtime_migration.py
     storage.py
     models.py
   projects/
-    runtime.json
+    agent.db
+  tools/
+    migrate_runtime_json_to_sqlite.py
 ```
 
 ## 架构
@@ -125,7 +129,7 @@ TrainingAgent
   ├── PythonSubmissionRunner
   ├── ProfileEngine
   ↓
-JSON Runtime Storage -> projects/runtime.json
+SQLite Runtime Repository -> projects/agent.db
 ```
 
 ## Agent 指令与 Skills
@@ -173,32 +177,21 @@ LLM 调用会按 Agent 名称加载 `agents/<agent_name>.md` 和命中的 `skill
 
 ## Runtime 存储
 
-运行时数据统一写入一个文件：
+运行时数据统一写入 SQLite 数据库：
 
 ```text
-projects/runtime.json
+projects/agent.db
 ```
 
-文件按分区和 id 组织：
+`SqliteRuntimeRepository` 会在启动时初始化 schema，核心表包括 `problems`、`sessions`、`profiles`、`reviews`、`leetcode_directories` 和 `runtime_metadata`。每张业务表保留完整 JSON payload，同时冗余少量检索字段，便于后续扩展查询。
 
-```json
-{
-  "problems": {
-    "two-sum": {}
-  },
-  "sessions": {
-    "s_xxx": {}
-  },
-  "profiles": {
-    "demo": {}
-  },
-  "reviews": {
-    "sub_xxx": {}
-  }
-}
+旧版 `.runtime/runtime.json`、`projects/runtime.json` 以及小 JSON 文件不会在启动时自动合并。需要迁移历史数据时手动执行：
+
+```bash
+./.venv/bin/python3 tools/migrate_runtime_json_to_sqlite.py --project-dir .
 ```
 
-启动时会自动把旧版 `.runtime/runtime.json` 以及 `.runtime/problems/`、`.runtime/sessions/`、`.runtime/profiles/`、`.runtime/reviews/` 下的小 JSON 文件合并进 `projects/runtime.json`。之后不会再为每条会话或复盘创建单独 JSON 文件。
+默认不覆盖 SQLite 中已有同 ID 记录；确认需要以旧 JSON 覆盖时追加 `--overwrite`。
 
 ## 当前限制
 
@@ -221,7 +214,7 @@ app.py
       -> HintEngine
       -> ReviewEngine
       -> ProfileEngine
-      -> JsonStorage
+      -> SqliteRuntimeRepository
 ```
 
 `app.py` 是 Streamlit UI 入口。它只负责页面展示和按钮交互，不直接写复杂业务逻辑。
@@ -232,7 +225,7 @@ app.py
 
 ### 1. 用户选择或导入 LeetCode 题目
 
-默认流程是在侧边栏从本地题库下拉选择题目，题目标题、难度和标签由 `ProblemStore.list_problems()` 从 `data/problems.json` 与 `projects/runtime.json` 汇总得到，用户不需要手动拼 slug。
+默认流程是在侧边栏从本地题库下拉选择题目，题目标题、难度和标签由 `ProblemStore.list_problems()` 从 `data/problems.json` 与 `projects/agent.db` 汇总得到，用户不需要手动拼 slug。
 
 如果本地题库里没有目标题，可以在“从 LeetCode URL 或 slug 导入”里输入题目 slug 或 URL：
 
@@ -250,7 +243,7 @@ app.py
       -> LeetCode GraphQL
       -> 转成 Problem
     -> ProblemStore.upsert_problem()
-      -> 缓存到 projects/runtime.json 的 problems 分区
+      -> 缓存到 projects/agent.db 的 problems 表
 ```
 
 ### 2. 用户开始一道题
@@ -260,7 +253,7 @@ app.py
     -> TrainingAgent.create_session()
     -> ProfileEngine.get_profile()
     -> SessionManager.create_session()
-    -> 保存到 projects/runtime.json 的 sessions 分区
+    -> 保存到 projects/agent.db 的 sessions 表
 ```
 
 这里会创建一个 `Session`，记录用户 ID、题目 ID、语言、开始时间、当前状态和后续消息。
@@ -308,7 +301,7 @@ app.py
     -> ProfileEngine.update_after_review()
       -> 更新不同题型失误画像
     -> SessionManager.mark_reviewed()
-    -> 保存 review 到 projects/runtime.json 的 reviews 分区
+    -> 保存 review 到 projects/agent.db 的 reviews 表
 ```
 
 `ReviewEngine` 返回 `ReviewResult`，包括：
@@ -340,9 +333,12 @@ app.py
 | `src/agent_instructions.py` | Agent 指令和 Skill 渐进式加载 |
 | `src/profile_engine.py` | 用户失误画像读取和更新 |
 | `src/llm_client.py` | OpenAI API 封装 |
-| `src/storage.py` | JSON 文件存储和 runtime 单文件存储 |
+| `src/runtime_repository.py` | SQLAlchemy 表定义、schema 初始化和 SQLite 运行时仓库 |
+| `src/runtime_migration.py` | 旧 JSON 到 SQLite 的迁移逻辑 |
+| `src/storage.py` | 静态 JSON 文件存储 |
 | `src/taxonomy.py` | 固定错误类型 |
 | `src/formatting.py` | 页面展示格式化 |
+| `tools/migrate_runtime_json_to_sqlite.py` | 手动迁移旧运行时 JSON 到 `projects/agent.db` |
 | `data/problems.json` | 本地兜底题库 |
 | `data/seed_user_profile.json` | 初始用户画像 |
 
@@ -391,7 +387,7 @@ Problem
 
 ```text
 data/problems.json
-projects/runtime.json -> problems
+projects/agent.db -> problems
 ```
 
 实时抓到题目后调用：
@@ -408,7 +404,7 @@ get_problem(problem_id)
 tags()
 ```
 
-后续如果换数据库，优先改这个模块。
+运行时题目详情统一通过 SQLite 运行时仓库读写。
 
 ### SessionManager
 
@@ -417,7 +413,7 @@ tags()
 保存位置：
 
 ```text
-projects/runtime.json -> sessions
+projects/agent.db -> sessions
 ```
 
 ### HintEngine
@@ -465,7 +461,7 @@ Python 提交会先运行题目样例；非 Python 提交只做 LLM 或规则级
 保存位置：
 
 ```text
-projects/runtime.json -> profiles
+projects/agent.db -> profiles
 ```
 
 它会根据提示使用情况和复盘结果更新：
@@ -503,14 +499,14 @@ settings.json 有 openai.api_key -> 调 LLM
 
 ## 本地数据如何保存
 
-运行时数据都在 `projects/runtime.json` 中：
+运行时数据都在 `projects/agent.db` 中：
 
 ```text
 projects/
-  runtime.json
+  agent.db
 ```
 
-这让 MVP 不需要数据库，也避免为每个 session、review、profile 疯狂创建小 JSON。打开 `runtime.json` 就能看到按 id 组织的状态变化。
+SQLite 负责保存题目详情、会话、画像、复盘和 LeetCode 目录索引。业务表保留完整 JSON payload，仍能按当前 Pydantic 模型还原运行时状态。
 
 ## 后续开发建议
 
@@ -521,7 +517,7 @@ projects/
 3. 给 `app.py` 增加更完整的运行状态展示。
 4. 给 `profile_engine.py` 增加更细的题型画像统计。
 5. 增加隐藏用例或自定义用例执行能力。
-6. 数据量变大后再把 `projects/runtime.json` 换成 SQLite。
+6. 给 SQLite 运行时仓库增加更细的检索索引和统计查询。
 7. 流程稳定后再考虑 LangGraph。
 
 不建议现在就做：

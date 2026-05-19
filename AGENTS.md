@@ -47,4 +47,4 @@ Pull Request 需说明变更目的、主要文件、验证命令和结果；涉�
 
 ## Security & Configuration Tips
 
-不要提交 `.venv/`、`projects/runtime.json`、`.runtime/`、API Key 或个人 LeetCode 数据。通过环境变量或本地配置设置 `OPENAI_API_KEY`、`OPENAI_MODEL`，不要写入源码或数据文件。
+不要提交 `.venv/`、`projects/agent.db`、`projects/runtime.json`、`.runtime/`、API Key 或个人 LeetCode 数据。通过环境变量或本地配置设置 `OPENAI_API_KEY`、`OPENAI_MODEL`，不要写入源码或数据文件。
