@@ -998,17 +998,30 @@ def render_llm_status(agent: TrainingAgent) -> None:
     返回值:
         无。
     """
+    diagnostics = agent.llm.snapshot_diagnostics()
     st.subheader("LLM 状态")
-    if agent.llm.available:
-        st.success(agent.llm.status_message)
+    if diagnostics.available:
+        st.success(diagnostics.status_message)
     else:
-        st.warning(agent.llm.status_message)
+        st.warning(diagnostics.status_message)
 
-    st.caption(f"配置文件: {agent.llm.config_path}")
-    if agent.llm.base_url:
-        st.caption(f"Base URL: {agent.llm.base_url}")
-    if agent.llm.last_error:
-        st.caption(f"最近错误: {agent.llm.last_error}")
+    st.caption(f"配置文件: {diagnostics.config_path}")
+    if diagnostics.base_url:
+        st.caption(f"Base URL: {diagnostics.base_url}")
+    st.caption(
+        f"初始化阶段: {diagnostics.init_stage} · "
+        f"最近调用阶段: {diagnostics.call_stage}"
+    )
+    if diagnostics.last_error:
+        error_type = f" ({diagnostics.last_error_type})" if diagnostics.last_error_type else ""
+        st.caption(f"最近错误{error_type}: {diagnostics.last_error}")
+    if diagnostics.last_warning:
+        warning_type = (
+            f" ({diagnostics.last_warning_type})" if diagnostics.last_warning_type else ""
+        )
+        st.caption(f"最近告警{warning_type}: {diagnostics.last_warning}")
+    if diagnostics.last_used_tools:
+        st.caption(f"最近工具: {', '.join(diagnostics.last_used_tools)}")
 
     if st.button("重新加载 LLM 配置"):
         get_agent.clear()
@@ -1066,12 +1079,22 @@ def render_llm_call_status(agent: TrainingAgent) -> None:
     返回值:
         无。
     """
-    if agent.llm.last_error:
-        st.caption(f"LLM 未使用或调用失败: {agent.llm.last_error}")
-    elif agent.llm.available:
+    diagnostics = agent.llm.snapshot_diagnostics()
+    if diagnostics.last_error:
+        error_type = f" ({diagnostics.last_error_type})" if diagnostics.last_error_type else ""
+        st.caption(
+            f"LLM 未使用或调用失败: {diagnostics.last_error}"
+            f"{error_type} · 阶段: {diagnostics.call_stage}"
+        )
+    elif diagnostics.available:
         st.caption("LLM 已参与本次生成。")
-    if agent.llm.last_used_tools:
-        st.caption(f"已调用工具: {', '.join(agent.llm.last_used_tools)}")
+    if diagnostics.last_warning:
+        warning_type = (
+            f" ({diagnostics.last_warning_type})" if diagnostics.last_warning_type else ""
+        )
+        st.caption(f"LLM 调用告警: {diagnostics.last_warning}{warning_type}")
+    if diagnostics.last_used_tools:
+        st.caption(f"已调用工具: {', '.join(diagnostics.last_used_tools)}")
 
 
 def render_workspace_header(agent: TrainingAgent, session: Session) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # 文件用途：封装 OpenAI-compatible LLM 调用，提供文本与 JSON 响应能力。
 
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,57 @@ from typing import Any
 from .agent_instructions import AgentInstructionLoader
 from .config import load_openai_config, resolve_config_path
 from .tools import ToolRegistry, build_default_tool_registry
+
+
+@dataclass
+class LlmDiagnostics:
+    """LLM 最近一次配置、初始化和调用诊断信息。
+
+    参数:
+        config_path: 当前读取的配置文件路径。
+        model: 当前模型名称。
+        base_url: 当前 OpenAI-compatible 服务地址。
+        available: SDK 客户端是否初始化成功。
+        init_stage: 初始化阶段。
+        call_stage: 最近一次调用阶段。
+        status_message: 初始化状态说明。
+        last_error: 最近一次错误信息。
+        last_error_type: 最近一次错误类型。
+        last_warning: 最近一次非致命告警信息。
+        last_warning_type: 最近一次非致命告警类型。
+        last_used_skills: 最近一次加载的 Skill 名称。
+        last_used_tools: 最近一次执行的工具名称。
+
+    返回值:
+        无。该类用于 UI 和测试读取 LLM 诊断状态。
+    """
+
+    # 当前读取的配置文件路径，便于确认 settings.json / config.toml 优先级。
+    config_path: str = ""
+    # 当前模型名称。
+    model: str = ""
+    # 当前 OpenAI-compatible 服务地址。
+    base_url: str | None = None
+    # SDK 客户端是否初始化成功。
+    available: bool = False
+    # 初始化阶段，例如 config_missing、api_key_missing、sdk_ready。
+    init_stage: str = "not_initialized"
+    # 最近一次调用阶段，例如 prompt_build、request、json_parse。
+    call_stage: str = "not_called"
+    # 初始化状态说明。
+    status_message: str = "未初始化。"
+    # 最近一次错误信息。
+    last_error: str = ""
+    # 最近一次错误类型。
+    last_error_type: str = ""
+    # 最近一次非致命告警信息，例如工具调用失败后回退为无工具请求。
+    last_warning: str = ""
+    # 最近一次非致命告警类型。
+    last_warning_type: str = ""
+    # 最近一次 LLM 调用实际加载的 Skill 名称。
+    last_used_skills: list[str] = field(default_factory=list)
+    # 最近一次 LLM 调用实际执行的工具名称。
+    last_used_tools: list[str] = field(default_factory=list)
 
 
 class LlmClient:
@@ -56,6 +108,12 @@ class LlmClient:
             agents_dir, skills_dir=project_dir / "skills"
         )
         self.tool_registry: ToolRegistry = build_default_tool_registry(project_dir)
+        # 当前 LLM 配置、初始化和最近一次调用诊断信息。
+        self.diagnostics = LlmDiagnostics(
+            config_path=str(self.config_path),
+            init_stage="loading_config",
+            call_stage="not_called",
+        )
         # 最近一次 LLM 调用实际加载的 Skill 名称，用于 UI 展示。
         self.last_used_skills: list[str] = []
         # 最近一次 LLM 调用实际执行的工具名称，用于 UI 展示和审计。
@@ -71,13 +129,21 @@ class LlmClient:
         self.api_key = api_key or config.api_key
         # OpenAI-compatible 服务地址，适配代理或第三方兼容接口。
         self.base_url = base_url or config.base_url
+        self.diagnostics.model = self.model
+        self.diagnostics.base_url = self.base_url
         # SDK 客户端实例；初始化失败时保持为 None。
         self._client = None
         if not self.config_path.exists() and api_key is None:
-            self.status_message = f"未启用：缺少配置文件 {self.config_path.name}。"
+            self._mark_unavailable(
+                "config_missing",
+                f"未启用：缺少配置文件 {self.config_path.name}。",
+            )
             return
         if not self.api_key:
-            self.status_message = f"未启用：{self.config_path.name} 中没有 openai.api_key。"
+            self._mark_unavailable(
+                "api_key_missing",
+                f"未启用：{self.config_path.name} 中没有 openai.api_key。",
+            )
             return
 
         try:
@@ -87,10 +153,14 @@ class LlmClient:
             if self.base_url:
                 client_options["base_url"] = self.base_url
             self._client = OpenAI(**client_options)
-            self.status_message = f"可用：模型 {self.model}。"
+            self._mark_available(f"可用：模型 {self.model}。")
         except Exception as exc:
             self._client = None
-            self.status_message = f"不可用：OpenAI SDK 初始化失败：{exc}"
+            self._mark_unavailable(
+                "sdk_init_failed",
+                f"不可用：OpenAI SDK 初始化失败：{type(exc).__name__}: {exc}",
+                exc,
+            )
 
     @property
     def available(self) -> bool:
@@ -103,6 +173,143 @@ class LlmClient:
             bool: True 表示已成功初始化 SDK 客户端。
         """
         return self._client is not None
+
+    def _mark_available(self, message: str) -> None:
+        """记录 LLM 初始化成功状态。
+
+        参数:
+            message: 展示给 UI 的状态文案。
+
+        返回值:
+            无。
+        """
+        self.status_message = message
+        self.diagnostics.available = True
+        self.diagnostics.init_stage = "sdk_ready"
+        self.diagnostics.status_message = message
+        self.diagnostics.last_error = ""
+        self.diagnostics.last_error_type = ""
+        self.diagnostics.last_warning = ""
+        self.diagnostics.last_warning_type = ""
+
+    def _mark_unavailable(
+        self,
+        stage: str,
+        message: str,
+        exc: Exception | None = None,
+    ) -> None:
+        """记录 LLM 初始化不可用状态。
+
+        参数:
+            stage: 初始化失败阶段。
+            message: 展示给 UI 的状态文案。
+            exc: 可选异常对象。
+
+        返回值:
+            无。
+        """
+        self.status_message = message
+        self.last_error = message
+        self.diagnostics.available = False
+        self.diagnostics.init_stage = stage
+        self.diagnostics.call_stage = "not_called"
+        self.diagnostics.status_message = message
+        self.diagnostics.last_error = message
+        self.diagnostics.last_error_type = type(exc).__name__ if exc else stage
+
+    def _set_call_stage(self, stage: str) -> None:
+        """更新最近一次 LLM 调用阶段。
+
+        参数:
+            stage: 调用阶段名称。
+
+        返回值:
+            无。
+        """
+        self.diagnostics.call_stage = stage
+
+    def _set_last_error(self, stage: str, message: str, exc: Exception | None = None) -> None:
+        """记录最近一次 LLM 调用错误。
+
+        参数:
+            stage: 出错阶段。
+            message: 错误说明。
+            exc: 可选异常对象。
+
+        返回值:
+            无。
+        """
+        self.last_error = message
+        self.diagnostics.call_stage = stage
+        self.diagnostics.last_error = message
+        self.diagnostics.last_error_type = type(exc).__name__ if exc else stage
+
+    def _clear_last_error(self) -> None:
+        """清空最近一次调用错误。
+
+        参数:
+            无。
+
+        返回值:
+            无。
+        """
+        self.last_error = ""
+        self.diagnostics.last_error = ""
+        self.diagnostics.last_error_type = ""
+
+    def _set_last_warning(
+        self,
+        warning_type: str,
+        message: str,
+    ) -> None:
+        """记录最近一次非致命告警。
+
+        参数:
+            warning_type: 告警类型。
+            message: 告警说明。
+
+        返回值:
+            无。
+        """
+        self.diagnostics.last_warning = message
+        self.diagnostics.last_warning_type = warning_type
+
+    def _clear_last_warning(self) -> None:
+        """清空最近一次非致命告警。
+
+        参数:
+            无。
+
+        返回值:
+            无。
+        """
+        self.diagnostics.last_warning = ""
+        self.diagnostics.last_warning_type = ""
+
+    def snapshot_diagnostics(self) -> LlmDiagnostics:
+        """返回最近一次 LLM 诊断快照。
+
+        参数:
+            无。
+
+        返回值:
+            LlmDiagnostics: 当前诊断状态副本。
+        """
+        return LlmDiagnostics(
+            config_path=self.diagnostics.config_path,
+            model=self.diagnostics.model,
+            base_url=self.diagnostics.base_url,
+            available=self.available,
+            init_stage=self.diagnostics.init_stage,
+            call_stage=self.diagnostics.call_stage,
+            status_message=self.status_message,
+            last_error=self.last_error,
+            last_error_type=self.diagnostics.last_error_type,
+            last_warning=self.diagnostics.last_warning,
+            last_warning_type=self.diagnostics.last_warning_type,
+            last_used_skills=list(self.last_used_skills),
+            last_used_tools=list(self.last_used_tools),
+        )
 
     def complete_text(self, system: str, user: str, agent_name: str | None = None) -> str | None:
         """请求模型生成文本。
@@ -118,20 +325,33 @@ class LlmClient:
         if not self._client:
             self.last_used_skills = []
             self.last_used_tools = []
-            self.last_error = self.status_message
+            self.diagnostics.last_used_skills = []
+            self.diagnostics.last_used_tools = []
+            self._set_last_error("client_unavailable", self.status_message)
             return None
         try:
+            self._clear_last_warning()
+            self._set_call_stage("prompt_build")
             prompt_result = self.instruction_loader.build_system_prompt(
                 agent_name, system, user
             )
             self.last_used_skills = prompt_result.used_skills
             self.last_used_tools = []
+            self.diagnostics.last_used_skills = list(self.last_used_skills)
+            self.diagnostics.last_used_tools = []
             try:
+                self._set_call_stage("request_with_tools")
                 response = self._create_response_with_tools(
                     prompt_result.system_prompt, user, agent_name
                 )
-            except Exception:
+            except Exception as exc:
                 self.last_used_tools = []
+                self.diagnostics.last_used_tools = []
+                self._set_last_warning(
+                    "tool_request_failed",
+                    f"工具调用链失败，已回退为无工具请求：{type(exc).__name__}: {exc}",
+                )
+                self._set_call_stage("request_without_tools")
                 response = self._client.responses.create(
                     model=self.model,
                     instructions=prompt_result.system_prompt,
@@ -139,12 +359,23 @@ class LlmClient:
                         {"role": "user", "content": user},
                     ],
                 )
-            self.last_error = ""
-            return _response_output_text(response)
+            text = _response_output_text(response)
+            if not text.strip():
+                self._set_last_error("empty_response", "LLM 返回内容为空。")
+                return None
+            self._clear_last_error()
+            self._set_call_stage("completed")
+            return text
         except Exception as exc:
             self.last_used_skills = []
             self.last_used_tools = []
-            self.last_error = f"LLM 调用失败：{exc}"
+            self.diagnostics.last_used_skills = []
+            self.diagnostics.last_used_tools = []
+            self._set_last_error(
+                self.diagnostics.call_stage or "request_failed",
+                f"LLM 调用失败：{type(exc).__name__}: {exc}",
+                exc,
+            )
             return None
 
     def _create_response_with_tools(self, system_prompt: str, user: str, agent_name: str | None):
@@ -186,6 +417,7 @@ class LlmClient:
                 )
                 tool_result = self.tool_registry.execute(call["name"], call["arguments"])
                 self.last_used_tools.append(call["name"])
+                self.diagnostics.last_used_tools = list(self.last_used_tools)
                 conversation.append(
                     {
                         "type": "function_call_output",
@@ -212,18 +444,33 @@ class LlmClient:
         text = self.complete_text(system, user, agent_name=agent_name)
         if not text:
             return None
+        self._set_call_stage("json_parse")
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
+            data = json.loads(text)
+            self._clear_last_error()
+            self._set_call_stage("completed")
+            return data
+        except json.JSONDecodeError as exc:
             start = text.find("{")
             end = text.rfind("}")
             if start >= 0 and end > start:
                 try:
-                    return json.loads(text[start : end + 1])
-                except json.JSONDecodeError:
-                    self.last_error = "LLM 返回内容不是合法 JSON。"
+                    data = json.loads(text[start : end + 1])
+                    self._clear_last_error()
+                    self._set_call_stage("completed")
+                    return data
+                except json.JSONDecodeError as inner_exc:
+                    self._set_last_error(
+                        "json_parse_failed",
+                        f"LLM 返回内容不是合法 JSON：{inner_exc}",
+                        inner_exc,
+                    )
                     return None
-        self.last_error = "LLM 返回内容不是合法 JSON。"
+            self._set_last_error(
+                "json_parse_failed",
+                f"LLM 返回内容不是合法 JSON：{exc}",
+                exc,
+            )
         return None
 
 
