@@ -1,3 +1,5 @@
+<!-- 文件用途：说明 LeetCode 训练 Agent 一周内的协作落地计划与任务拆分。 -->
+
 # LeetCode 训练 Agent 一周协作落地方案
 
 ## 1. 一周目标
@@ -12,7 +14,6 @@
 4. 用户提交代码。
 5. 系统做基础评估和复盘。
 6. 系统记录错误模式。
-7. 系统基于错误推荐下一题。
 
 本版本不追求完整 LeetCode 题库、不追求复杂在线判题、不追求多人系统、不追求复杂机器学习模型。
 
@@ -26,9 +27,8 @@
 4. 分级提示能力。
 5. 提交代码后的复盘能力。
 6. 简单用户画像和错误模式记录。
-7. 下一题推荐。
-8. README 运行说明。
-9. 一段 3-5 分钟演示流程。
+7. README 运行说明。
+8. 一段 3-5 分钟演示流程。
 
 推荐技术栈：
 
@@ -51,7 +51,6 @@
 | 复盘 | 对用户思路和代码生成复盘 |
 | 错误记录 | 记录错误类型、题目、次数 |
 | 用户画像 | 汇总强项、弱点、提示依赖 |
-| 推荐 | 根据弱点推荐下一题 |
 | UI | 能看题、输入内容、请求提示、提交代码、看复盘 |
 
 ### 3.2 暂不做
@@ -77,7 +76,7 @@
    - 二叉树
    - 滑动窗口
    - 图论
-3. 系统根据目标推荐第一题。
+3. 用户从题目列表中选择本次训练题目。
 
 ### 4.2 单题训练
 
@@ -94,7 +93,6 @@
    - 主要错误。
    - 改进建议。
 7. 系统更新用户画像。
-8. 系统推荐下一题。
 
 ## 5. 系统架构
 
@@ -112,7 +110,7 @@ Training Orchestrator
  ├── Hint Engine
  ├── Review Engine
  ├── Profile Engine
- └── Recommendation Engine
+ └── LeetCode Client
  │
  ▼
 SQLite / JSON Files
@@ -137,18 +135,17 @@ leetcode-agent/
     hint_engine.py
     review_engine.py
     profile_engine.py
-    recommendation_engine.py
+    leetcode_client.py
     llm_client.py
     storage.py
   prompts/
     hint.md
     review.md
     profile_update.md
-    recommendation.md
   tests/
     test_hint_engine.py
     test_profile_engine.py
-    test_recommendation_engine.py
+    test_leetcode_client.py
 ```
 
 如果使用 Streamlit，`app.py` 直接作为入口。
@@ -369,7 +366,7 @@ MVP 不需要自动精确识别所有状态，可以通过用户动作和关键�
 
 ## 10. 错误分类
 
-MVP 使用固定 taxonomy，方便统计和推荐。
+MVP 使用固定 taxonomy，方便统计和画像更新。
 
 | 类型 | 说明 | 常见题型 |
 |---|---|---|
@@ -385,37 +382,14 @@ MVP 使用固定 taxonomy，方便统计和推荐。
 | complexity_too_high | 复杂度过高 | 所有题型 |
 | return_format_wrong | 返回格式错误 | 所有题型 |
 
-## 11. 推荐策略
+## 11. 训练题选择策略
 
-### 11.1 题目打分
+一周 MVP 不保留独立推荐链路，题目选择先使用简单、可解释的筛选方式：
 
-MVP 使用规则打分：
-
-```text
-score =
-  weakness_match * 0.40 +
-  difficulty_fit * 0.25 +
-  not_recently_done * 0.15 +
-  interview_value * 0.10 +
-  prerequisite_fit * 0.10
-```
-
-字段解释：
-
-| 字段 | 说明 |
-|---|---|
-| weakness_match | 是否命中用户薄弱 topic 或错误模式 |
-| difficulty_fit | 难度是否适合当前水平 |
-| not_recently_done | 是否不是刚做过的题 |
-| interview_value | 是否属于高频或经典题 |
-| prerequisite_fit | 是否具备前置知识 |
-
-### 11.2 推荐理由模板
-
-```text
-推荐你下一题做 {problem_title}。
-原因：你刚才在 {mistake_type} 上有一次明显失误，这题可以继续练习 {topic}，难度比上一题略高但不会跳太大。
-```
+1. 按标签筛选题目。
+2. 按难度筛选题目。
+3. 优先展示未完成题。
+4. 在复盘中记录薄弱 topic，供用户手动选择后续训练题。
 
 ## 12. API 设计
 
@@ -431,7 +405,6 @@ score =
 | POST | /sessions/{session_id}/hint | 请求提示 |
 | POST | /sessions/{session_id}/submit | 提交代码 |
 | GET | /users/{user_id}/profile | 获取用户画像 |
-| GET | /users/{user_id}/recommendations | 获取推荐题目 |
 
 一周内如果使用 Streamlit，可以不暴露完整 API，但内部函数要按这些边界拆分，方便后续迁移。
 
@@ -530,8 +503,7 @@ score =
 4. Hint Prompt。
 5. Review Prompt。
 6. Profile Update Prompt。
-7. 推荐规则。
-8. 复盘输出格式。
+7. 复盘输出格式。
 
 交付文件：
 
@@ -540,11 +512,9 @@ data/problems.json
 prompts/hint.md
 prompts/review.md
 prompts/profile_update.md
-prompts/recommendation.md
 src/hint_engine.py
 src/review_engine.py
 src/profile_engine.py
-src/recommendation_engine.py
 ```
 
 ### 成员 B：工程与产品集成
@@ -606,9 +576,6 @@ def review_submission(session: Session, problem: Problem, profile: UserProfile, 
     ...
 
 def update_profile(profile: UserProfile, session: Session, review: ReviewResult) -> UserProfile:
-    ...
-
-def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) -> list[Problem]:
     ...
 ```
 
@@ -696,25 +663,25 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 2. 复盘包含复杂度、错误类型和改进建议。
 3. 错误类型来自 taxonomy。
 
-### Day 5：画像和推荐
+### Day 5：画像和题目选择
 
-目标：做完题后能更新用户画像并推荐下一题。
+目标：做完题后能更新用户画像，并能按标签或难度继续选择题目。
 
 任务：
 
 | 人 | 任务 |
 |---|---|
 | A | 完成 Profile Update Prompt |
-| A | 实现推荐规则 |
+| A | 完善题目标签和难度字段 |
 | B | 增加用户画像页面 |
-| B | 增加下一题推荐展示 |
+| B | 增加题目筛选入口 |
 | 共同 | 测试连续做 3 题的数据流 |
 
 验收：
 
 1. 画像会记录常见错误。
-2. 推荐题目能给出理由。
-3. 已做过题目不会马上重复推荐。
+2. 用户能按标签或难度继续选择题目。
+3. 已完成题目能在列表中体现状态。
 
 ### Day 6：打磨和补数据
 
@@ -756,7 +723,7 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 2. 用户能请求多级提示。
 3. 用户提交代码后能收到复盘。
 4. 系统能记录错误并更新画像。
-5. 系统能推荐下一题并说明原因。
+5. 系统能基于标签、难度和完成状态继续选择题目。
 
 ## 17. 每日协作机制
 
@@ -798,8 +765,8 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 | Submission Storage | B | P0 | Todo |
 | Profile Engine | A | P1 | Todo |
 | Profile Page | B | P1 | Todo |
-| Recommendation Engine | A | P1 | Todo |
-| Recommendation UI | B | P1 | Todo |
+| Problem Filter | A | P1 | Todo |
+| Problem Selection UI | B | P1 | Todo |
 | README | B | P1 | Todo |
 | 演示脚本 | 共同 | P1 | Todo |
 
@@ -818,7 +785,7 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 7. 系统能生成结构化复盘。
 8. 系统能记录至少一种错误模式。
 9. 系统能展示用户画像。
-10. 系统能推荐下一题。
+10. 系统能基于标签、难度和完成状态继续选择题目。
 
 ### 19.2 质量验收
 
@@ -827,7 +794,7 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 1. Level 1-3 不直接泄露完整答案。
 2. 复盘必须引用用户代码或思路中的具体证据。
 3. 用户画像不能只因一次错误就下强结论。
-4. 推荐必须有理由。
+4. 画像更新必须有用户行为证据。
 5. 应用从零启动不超过 3 个命令。
 
 ### 19.3 演示验收
@@ -836,13 +803,13 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 
 1. 选择用户 ID。
 2. 选择训练目标。
-3. 系统推荐第一题。
+3. 用户选择第一题。
 4. 用户输入一个不完整思路。
 5. 请求 Level 1 和 Level 2 提示。
 6. 提交一段有边界问题的代码。
 7. Agent 指出错误并复盘。
 8. 系统更新画像。
-9. 系统推荐下一题。
+9. 用户基于题目标签或难度继续选择训练题。
 
 ## 20. 风险和兜底
 
@@ -853,7 +820,7 @@ def recommend_next_problem(profile: UserProfile, solved_problem_ids: list[str]) 
 | 题目数据整理慢 | 题库不足 | 降到 8-10 道经典题 |
 | 前端拖慢进度 | 页面做不完 | 改用 Streamlit 或 CLI |
 | 画像过度推断 | 一次错误就贴标签 | 加 confidence 和 evidence_count |
-| 推荐不好解释 | 用户不知道为什么做下一题 | 强制输出推荐理由 |
+| 画像不好解释 | 用户不知道画像从何而来 | 复盘中保留行为证据 |
 
 ## 21. 一周内不要做的事
 
@@ -904,7 +871,6 @@ user_id: demo
 - Guided hints
 - Submission review
 - User profile
-- Next problem recommendation
 
 ## Limitations
 - This MVP does not provide full online judging.
@@ -920,7 +886,8 @@ user_id: demo
 3. Agent 能提供递进提示。
 4. Agent 能基于用户代码做具体复盘。
 5. 系统能留下用户错误记录。
-6. 下一题推荐和用户画像不是静态假数据。
-7. 两人可以继续在这个基础上扩展，而不是推倒重来。
+6. 用户画像不是静态假数据。
+7. 用户能基于标签、难度和完成状态继续选择训练题。
+8. 两人可以继续在这个基础上扩展，而不是推倒重来。
 
-优先把“单题训练体验”做扎实。题库、沙箱、多用户、复杂推荐都可以后置。
+优先把“单题训练体验”做扎实。题库、沙箱、多用户、复杂选题策略都可以后置。
