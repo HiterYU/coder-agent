@@ -1,6 +1,6 @@
+# 文件用途：定义训练 Agent 的核心领域模型与运行时数据结构。
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
@@ -9,29 +9,27 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 
-if not hasattr(BaseModel, "model_validate"):
-    BaseModel.model_validate = classmethod(lambda cls, value: cls.parse_obj(value))
-
-if not hasattr(BaseModel, "model_dump"):
-    def _model_dump(self, mode: str = "python", **kwargs):
-        if mode == "json":
-            return json.loads(self.json())
-        return self.dict(**kwargs)
-
-    BaseModel.model_dump = _model_dump
-
-if not hasattr(BaseModel, "model_dump_json"):
-    def _model_dump_json(self, indent: int | None = None, **kwargs):
-        return self.json(ensure_ascii=False, indent=indent, **kwargs)
-
-    BaseModel.model_dump_json = _model_dump_json
-
-
 def utc_now() -> str:
+    """生成当前 UTC 时间的 ISO 字符串。
+
+    参数：
+        无。
+
+    返回：
+        去除微秒后的 UTC ISO 时间字符串。
+    """
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def new_id(prefix: str) -> str:
+    """生成带业务前缀的短随机 ID。
+
+    参数：
+        prefix: ID 前缀，用于区分会话、提交等业务实体。
+
+    返回：
+        形如 `{prefix}_xxxxxxxxxxxx` 的短 ID。
+    """
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
