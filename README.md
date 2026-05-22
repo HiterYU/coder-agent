@@ -20,15 +20,11 @@
    - `agent/requirements.txt` 已锁定 `pydantic>=2.7.0`，`agent/src/models.py` 中面向 Pydantic v1 的兼容 polyfill 可以删除。
    - 顺手移除只服务于旧兼容逻辑的无用 import。
 
-2. 补齐核心测试覆盖
-   - 当前测试主要覆盖 LLM 诊断与 SQLite 迁移，后续应优先补 `hint_engine`、`review_engine`、`profile_engine`、`leetcode_client`、`submission_runner` 的独立单测。
-   - 测试优先覆盖纯业务逻辑、异常兜底、提示等级递增、复盘结果解析和本地运行协议。
-
-3. 拆分 LLM 客户端职责
+2. 拆分 LLM 客户端职责
    - `agent/src/llm_client.py` 同时承担诊断状态、SDK 初始化、工具调用循环和 JSON 解析，职责偏重。
    - 建议在补测试后拆成 `llm_diagnostics.py`、`tool_call_executor.py` 和更轻量的 `llm_client.py`。
 
-4. 统一错误边界
+3. 统一错误边界
    - 不建议机械替换所有 `except Exception`，因为部分宽捕获用于降级到本地兜底。
    - 更合理的方向是引入 `LlmError`、`LeetCodeError`、`SubmissionError` 等领域异常，并在 UI 边界统一转成可展示诊断。
 
